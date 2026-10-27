@@ -1,0 +1,13 @@
+rules_version = '2';
+// Resume files. Each user can only write to their own folder.
+// Employers open files through the private download link saved in the application.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /resumes/{uid}/{fileName} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.size < 5 * 1024 * 1024
+                    && request.resource.contentType.matches('application/pdf|image/(jpeg|png|webp)');
+    }
+  }
+}

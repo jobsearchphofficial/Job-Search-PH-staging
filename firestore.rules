@@ -1,0 +1,388 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(me()));
+    }
+    function str(v, min, max) { return v is string && v.size() >= min && v.size() <= max; }
+    function optStr(v, max) { return v == null || (v is string && v.size() <= max); }
+    function optNum(v) { return v == null || (v is number && v >= 0 && v <= 10000000); }
+    // Banned users can still sign in and read, but can't post, apply, message, report or edit their profile.
+    function notBanned() { return !exists(/databases/$(database)/documents/bans/$(me())); }
+    function jobDoc(jobId) { return get(/databases/$(database)/documents/jobs/$(jobId)); }
+
+    /* ---------- Daily limits (anti-spam) ----------
+       Each signed-in user has limits/{uid} with today's counters (Philippine day).
+       Every limited write must bump its counter in the same batch, and counters
+       can only go up by one per write and never past the cap. */
+    function today() { return math.floor((request.time.toMillis() + 28800000) / 86400000); }
+    function limPath() { return /databases/$(database)/documents/limits/$(me()); }
+    function prevCount(f) {
+      return exists(limPath()) && get(limPath()).data.day == today() ? get(limPath()).data.get(f, 0) : 0;
+    }
+    function bumped(f) {
+      return existsAfter(limPath())
+          && getAfter(limPath()).data.day == today()
+          && getAfter(limPath()).data.get(f, 0) == prevCount(f) + 1;
+    }
+    // Job posts are limited per Philippine calendar month (field postsM, month = year * 12 + month).
+    function thisMonth() { return (request.time + duration.value(8, 'h')).year() * 12 + (request.time + duration.value(8, 'h')).month(); }
+    function prevPostsM() {
+      return exists(limPath()) && get(limPath()).data.get('month', -1) == thisMonth() ? get(limPath()).data.get('postsM', 0) : 0;
+    }
+    function bumpedPost() {
+      return existsAfter(limPath())
+          && getAfter(limPath()).data.get('month', -1) == thisMonth()
+          && getAfter(limPath()).data.get('postsM', 0) == prevPostsM() + 1;
+    }
+    function validPhoto(p) { return p == null || p == '' || (p is string && p.size() <= 60000 && p.matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')); }
+
+    /* ---------- Profiles ---------- */
+    function validProfile(d) {
+      return d.keys().hasOnly([
+          'role','fullName','phone','city','messenger','consent','createdAt','updatedAt',
+          'birthDate','gender','jobCategories','jobTypes','experienceYears','skills','workHistory',
+          'education','availability','resumeUrl','resumeFileUrl','resumeFileName','companyName','photo','email','src','jobCategoryOther',
+          'fbUrl','bizReg','signIn','emailVerified','alerts','alertsScope','alertsToken'])
+        && d.role in ['jobseeker', 'employer']
+        && str(d.fullName, 2, 80)
+        && str(d.phone, 7, 20)
+        && str(d.city, 1, 60)
+        && d.consent == true
+        && optStr(d.get('messenger', null), 100)
+        && optStr(d.get('birthDate', null), 10)
+        && (d.get('gender', null) == null || d.gender in ['', 'Male', 'Female', 'Other'])
+        && (d.get('jobCategories', null) == null || (d.jobCategories is list && d.jobCategories.size() <= 14))
+        && (d.get('jobTypes', null) == null || (d.jobTypes is list && d.jobTypes.size() <= 5))
+        && optNum(d.get('experienceYears', null))
+        && optStr(d.get('skills', null), 1000)
+        && optStr(d.get('workHistory', null), 3000)
+        && optStr(d.get('education', null), 300)
+        && optStr(d.get('availability', null), 60)
+        && optStr(d.get('resumeUrl', null), 500)
+        && optStr(d.get('resumeFileUrl', null), 1000)
+        && optStr(d.get('resumeFileName', null), 200)
+        && optStr(d.get('companyName', null), 100)
+        && validPhoto(d.get('photo', null))
+        && optStr(d.get('email', null), 200)
+        && optStr(d.get('src', null), 40)
+        && optStr(d.get('jobCategoryOther', null), 40)
+        && optStr(d.get('fbUrl', null), 200)
+        && optStr(d.get('bizReg', null), 60)
+        && (d.get('signIn', null) == null || d.signIn in ['', 'google', 'password'])
+        && (d.get('emailVerified', null) == null || d.emailVerified is bool)
+        // Job alert emails (opt-in). The token is the secret in the unsubscribe link.
+        && (d.get('alerts', null) == null || d.alerts is bool)
+        && (d.get('alertsScope', null) == null || d.alertsScope in ['city', 'all'])
+        && (d.get('alertsToken', null) == null || (d.alertsToken is string && d.alertsToken.matches('[A-Za-z0-9]{32}')));
+    }
+
+    match /users/{uid} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow create, update: if signedIn() && me() == uid && notBanned() && validProfile(request.resource.data);
+      allow delete: if (signedIn() && me() == uid) || isAdmin();
+    }
+
+    /* ---------- Jobs ---------- */
+    function validJob(d) {
+      return d.keys().hasOnly([
+          'title','category','categoryOther','employerName','city','employmentType',
+          'salaryMin','salaryMax','salaryPeriod','description','requirements',
+          'area','address','addressHidden','workplace','arrangement','schedule','hours','daysOff','daysOffPer','openings','startDate','benefits',
+          'reqExperience','reqEducation','reqList',
+          'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt'])
+        && str(d.title, 3, 100)
+        && str(d.category, 1, 40)
+        && optStr(d.get('categoryOther', null), 40)
+        && str(d.employerName, 1, 80)
+        && str(d.city, 1, 60)
+        && str(d.employmentType, 1, 30)
+        && optNum(d.salaryMin) && optNum(d.salaryMax)
+        && d.salaryPeriod in ['month', 'day', 'hour']
+        && str(d.description, 30, 4000)
+        && str(d.requirements, 0, 2000)
+        && d.status in ['pending', 'approved', 'rejected', 'closed']
+        && d.featured is bool
+        && optStr(d.get('area', null), 80)
+        && (d.get('workplace', null) == null || d.workplace in ['household', 'business'])
+        && optStr(d.get('hours', null), 60)
+        && optStr(d.get('address', null), 200)
+        && (d.get('addressHidden', null) == null || d.addressHidden is bool)
+        && optNum(d.get('daysOff', null))
+        && (d.get('openings', null) == null || (d.openings is number && d.openings >= 1 && d.openings <= 3))
+        && (d.get('daysOffPer', null) == null || d.daysOffPer in ['week', 'month'])
+        && optStr(d.get('startDate', null), 10)
+        && (d.get('benefits', null) == null || (d.benefits is list && d.benefits.size() <= 12))
+        && optStr(d.get('arrangement', null), 20)
+        && optStr(d.get('schedule', null), 20)
+        && optNum(d.get('reqExperience', null))
+        && optStr(d.get('reqEducation', null), 40)
+        && (d.get('reqList', null) == null || (d.reqList is list && d.reqList.size() <= 20));
+    }
+
+    match /jobs/{jobId} {
+      allow read: if resource.data.status == 'approved'
+                  || (signedIn() && resource.data.ownerUid == me())
+                  || isAdmin();
+      allow create: if signedIn() && notBanned()
+                    && validJob(request.resource.data)
+                    && request.resource.data.ownerUid == me()
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.featured == false
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.approvedAt == null
+                    && request.resource.data.expiresAt == null
+                    && (isAdmin() || bumpedPost());
+      // Owners may only close their own post. Admins can change anything.
+      allow update: if isAdmin()
+                    || (signedIn()
+                        && resource.data.ownerUid == me()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+                        && request.resource.data.status == 'closed');
+      allow delete: if isAdmin();
+
+      // Employer contact details: visible to the owner, admins, and the worker they hired.
+      match /private/{docId} {
+        allow read: if isAdmin()
+                    || (signedIn() && (jobDoc(jobId).data.ownerUid == me()
+                        || (exists(/databases/$(database)/documents/applications/$(jobId + '_' + me()))
+                            && get(/databases/$(database)/documents/applications/$(jobId + '_' + me())).data.status == 'hired')));
+        allow create, update: if signedIn() && notBanned() && docId == 'contact'
+                    && getAfter(/databases/$(database)/documents/jobs/$(jobId)).data.ownerUid == me()
+                    && request.resource.data.keys().hasOnly(['contactMethod', 'contactValue', 'address'])
+                    && optStr(request.resource.data.get('address', null), 200)
+                    && request.resource.data.contactMethod in ['messenger', 'phone', 'email']
+                    && str(request.resource.data.contactValue, 3, 200);
+        allow delete: if isAdmin();
+      }
+    }
+
+    /* ---------- Applications ---------- */
+    match /applications/{appId} {
+      allow read: if (signedIn() && (resource.data.applicantUid == me() || resource.data.employerUid == me())) || isAdmin();
+      allow create: if signedIn() && notBanned()
+                    && appId == request.resource.data.jobId + '_' + me()
+                    && request.resource.data.keys().hasOnly([
+                         'jobId','jobTitle','jobCity','jobSchedule','jobArrangement','employerName','employerUid','applicantUid','applicant',
+                         'message','status','createdAt','updatedAt'])
+                    && request.resource.data.applicantUid == me()
+                    && jobDoc(request.resource.data.jobId).data.status == 'approved'
+                    && request.resource.data.employerUid == jobDoc(request.resource.data.jobId).data.ownerUid
+                    && request.resource.data.employerUid != me()
+                    && request.resource.data.jobTitle == jobDoc(request.resource.data.jobId).data.title
+                    && request.resource.data.applicant is map
+                    && request.resource.data.applicant.keys().size() <= 30
+                    && str(request.resource.data.applicant.fullName, 2, 80)
+                    && str(request.resource.data.applicant.phone, 7, 20)
+                    && validPhoto(request.resource.data.applicant.get('photo', null))
+                    && bumped('applies')
+                    && str(request.resource.data.message, 0, 1000)
+                    && request.resource.data.status == 'new'
+                    && request.resource.data.createdAt == request.time;
+      // Employers update only the status of applications to their jobs.
+      allow update: if isAdmin()
+                    || (signedIn() && resource.data.employerUid == me()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'declinedAt'])
+                        && request.resource.data.status in ['new', 'shortlisted', 'not_selected', 'offered']
+                        && resource.data.status in ['new', 'shortlisted', 'not_selected', 'offered']
+                        && (request.resource.data.status == 'not_selected'
+                              ? request.resource.data.declinedAt == request.time
+                              : request.resource.data.get('declinedAt', null) == null));
+      // The jobseeker accepts or declines a job offer. Only they can make someone "hired".
+      allow update: if signedIn() && notBanned() && resource.data.applicantUid == me()
+                    && resource.data.status == 'offered'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'acceptedAt', 'declinedAt'])
+                    && ((request.resource.data.status == 'hired' && request.resource.data.acceptedAt == request.time)
+                        || (request.resource.data.status == 'offer_declined' && request.resource.data.declinedAt == request.time));
+      // Chat bookkeeping: each side updates the last message and when they last read it.
+      allow update: if signedIn() && resource.data.applicantUid == me()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastMessageFrom', 'lastMessageText', 'applicantSeenAt'])
+                    && request.resource.data.get('lastMessageFrom', '') in [me(), resource.data.get('lastMessageFrom', '')];
+      allow update: if signedIn() && resource.data.employerUid == me()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastMessageFrom', 'lastMessageText', 'employerSeenAt'])
+                    && request.resource.data.get('lastMessageFrom', '') in [me(), resource.data.get('lastMessageFrom', '')];
+
+      // Messages between the applicant and the employer. Closes 48 hours after the applicant is declined.
+      match /messages/{mid} {
+        function app() { return get(/databases/$(database)/documents/applications/$(appId)).data; }
+        function party() { return signedIn() && (app().applicantUid == me() || app().employerUid == me()); }
+        function chatOpen() {
+          return !(app().status in ['not_selected', 'offer_declined'])
+              || (app().get('declinedAt', null) != null && request.time < app().declinedAt + duration.value(48, 'h'));
+        }
+        allow read: if party() || isAdmin();
+        allow create: if party() && notBanned()
+                      && chatOpen()
+                      && request.resource.data.keys().hasOnly(['fromUid', 'text', 'createdAt'])
+                      && request.resource.data.fromUid == me()
+                      && str(request.resource.data.text, 1, 1000)
+                      && request.resource.data.createdAt == request.time
+                      && bumped('messages')
+                      && getAfter(limPath()).data.msgAt == request.time
+                      && (!exists(limPath()) || get(limPath()).data.get('msgAt', null) == null
+                          || request.time > get(limPath()).data.msgAt + duration.value(2, 's'));
+      }
+      // Ending a job needs both sides: one asks, the other confirms (or says not yet).
+      allow update: if signedIn()
+                    && (resource.data.applicantUid == me() || resource.data.employerUid == me())
+                    && resource.data.status == 'hired'
+                    && resource.data.get('employmentEnded', false) != true
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['endRequestedBy', 'endRequestedAt', 'employmentEnded', 'endedAt', 'updatedAt'])
+                    && (
+                      // ask to end
+                      (resource.data.get('endRequestedBy', null) == null
+                        && request.resource.data.endRequestedBy == me()
+                        && request.resource.data.endRequestedAt == request.time
+                        && request.resource.data.get('employmentEnded', false) == false)
+                      // withdraw my request, or say "not yet" to theirs
+                      || (resource.data.get('endRequestedBy', null) != null
+                        && request.resource.data.endRequestedBy == null
+                        && request.resource.data.get('employmentEnded', false) == false)
+                      // confirm the other side's request
+                      || (resource.data.get('endRequestedBy', null) != null
+                        && resource.data.endRequestedBy != me()
+                        && request.resource.data.employmentEnded == true
+                        && request.resource.data.endedAt == request.time)
+                    );
+      // Applicants can withdraw.
+      allow delete: if (signedIn() && resource.data.applicantUid == me()) || isAdmin();
+    }
+
+    /* ---------- Notifications ---------- */
+    function appDoc(appId) { return get(/databases/$(database)/documents/applications/$(appId)); }
+    match /notifications/{nid} {
+      allow read, delete: if signedIn() && resource.data.toUid == me();
+      allow update: if signedIn() && resource.data.toUid == me()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      // Only people connected through an application (or admins) can notify someone.
+      allow create: if signedIn() && notBanned()
+                    && request.resource.data.keys().hasOnly(['toUid','fromUid','type','title','body','link','appId','jobId','read','createdAt'])
+                    && request.resource.data.fromUid == me()
+                    && request.resource.data.toUid != me()
+                    && request.resource.data.read == false
+                    && request.resource.data.createdAt == request.time
+                    && str(request.resource.data.type, 1, 40)
+                    && str(request.resource.data.title, 1, 120)
+                    && str(request.resource.data.body, 0, 300)
+                    && str(request.resource.data.link, 0, 200)
+                    && (isAdmin()
+                        || (str(request.resource.data.appId, 3, 200)
+                            && ((appDoc(request.resource.data.appId).data.applicantUid == me()
+                                 && appDoc(request.resource.data.appId).data.employerUid == request.resource.data.toUid)
+                             || (appDoc(request.resource.data.appId).data.employerUid == me()
+                                 && appDoc(request.resource.data.appId).data.applicantUid == request.resource.data.toUid))));
+    }
+
+    /* ---------- Support messages ---------- */
+    match /support/{sid} {
+      allow create: if request.resource.data.keys().hasOnly(['topic', 'name', 'reply', 'message', 'page', 'uid', 'createdAt'])
+                    && str(request.resource.data.topic, 1, 60)
+                    && str(request.resource.data.name, 2, 80)
+                    && str(request.resource.data.reply, 5, 120)
+                    && str(request.resource.data.message, 10, 2000)
+                    && str(request.resource.data.page, 0, 200)
+                    && ((request.resource.data.uid == '' && !signedIn())
+                        || (signedIn() && request.resource.data.uid == me() && bumped('support')))
+                    && request.resource.data.createdAt == request.time;
+      allow read, delete: if isAdmin();
+      // Admins mark messages done (kept as history) or reopen them.
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'doneAt']);
+    }
+
+    /* ---------- Reports ---------- */
+    match /reports/{reportId} {
+      allow create: if signedIn() && notBanned() && bumped('reports')
+                    && request.resource.data.keys().hasOnly(['jobId', 'reason', 'details', 'createdAt'])
+                    && str(request.resource.data.jobId, 1, 64)
+                    && request.resource.data.reason in ['fee', 'scam', 'illegal', 'wrong', 'filled', 'other']
+                    && str(request.resource.data.details, 0, 500)
+                    && request.resource.data.createdAt == request.time;
+      allow read, delete: if isAdmin();
+    }
+
+    match /limits/{uid} {
+      function cnt(f, cap) {
+        let before = resource != null && resource.data.day == today() ? resource.data.get(f, 0) : 0;
+        let after = request.resource.data.get(f, 0);
+        return after is int && after >= before && after <= before + 1 && after <= cap;
+      }
+      function mcnt(f, cap) {
+        let before = resource != null && resource.data.get('month', -1) == thisMonth() ? resource.data.get(f, 0) : 0;
+        let after = request.resource.data.get(f, 0);
+        return after is int && after >= before && after <= before + 1 && after <= cap;
+      }
+      allow read: if signedIn() && me() == uid;
+      allow create, update: if signedIn() && me() == uid
+                    && request.resource.data.keys().hasOnly(['day', 'month', 'applies', 'posts', 'messages', 'reports', 'support', 'postsM', 'msgAt'])
+                    && request.resource.data.day == today()
+                    && request.resource.data.get('month', thisMonth()) == thisMonth()
+                    && cnt('applies', 10) && cnt('posts', 5) && mcnt('postsM', 5) && cnt('messages', 200) && cnt('reports', 5) && cnt('support', 3)
+                    && (request.resource.data.get('msgAt', null) == (resource == null ? null : resource.data.get('msgAt', null))
+                        || request.resource.data.msgAt == request.time);
+    }
+
+    /* ---------- Founding members: the first 100 profiles get a numbered badge ---------- */
+    function foundersPath() { return /databases/$(database)/documents/meta/founders; }
+    match /meta/founders {
+      allow read: if true;
+      allow create, update: if isAdmin()
+                    || (signedIn()
+                        && request.resource.data.keys().hasOnly(['count'])
+                        && request.resource.data.count is int
+                        && request.resource.data.count == (resource == null ? 0 : resource.data.count) + 1
+                        && request.resource.data.count <= 100
+                        && getAfter(/databases/$(database)/documents/founders/$(me())).data.no == request.resource.data.count);
+    }
+    match /founders/{uid} {
+      allow read: if true;
+      allow create: if isAdmin()
+                    || (signedIn() && me() == uid && notBanned()
+                        && exists(/databases/$(database)/documents/users/$(me()))
+                        && request.resource.data.keys().hasOnly(['no', 'at'])
+                        && request.resource.data.at == request.time
+                        && request.resource.data.no == getAfter(foundersPath()).data.count);
+      allow update, delete: if isAdmin();
+    }
+
+    // Employers an admin has checked (phone call, Facebook, business permit…). Public so the badge shows.
+    match /verified/{uid} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+                    && request.resource.data.keys().hasOnly(['at', 'by', 'method'])
+                    && str(request.resource.data.method, 1, 60);
+      allow delete: if isAdmin();
+    }
+
+    /* ---------- Job alert emails ----------
+       The unsubscribe link in each email writes unsubscribes/{token}, no sign-in needed.
+       Nobody can read these; the daily alert job (server key) turns alerts off and deletes them.
+       alertState/{uid} is the job's own bookkeeping (when each person was last emailed). */
+    match /unsubscribes/{token} {
+      // update too, so clicking the link twice still works
+      allow create, update: if token.matches('[A-Za-z0-9]{32}')
+                    && request.resource.data.keys().hasOnly(['at'])
+                    && request.resource.data.at == request.time;
+      allow read, delete: if false;
+    }
+    match /alertState/{uid} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /bans/{uid} {
+      allow read: if signedIn() && (me() == uid || isAdmin());
+      allow create, update: if isAdmin()
+                    && request.resource.data.keys().hasOnly(['reason', 'note', 'bannedAt', 'bannedBy', 'name'])
+                    && str(request.resource.data.reason, 1, 80) && str(request.resource.data.get('note', ''), 0, 500);
+      allow delete: if isAdmin();
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && me() == uid;
+      allow write: if false;
+    }
+  }
+}

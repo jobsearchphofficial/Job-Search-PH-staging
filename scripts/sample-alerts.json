@@ -1,0 +1,23 @@
+{
+  "_note": "Test data for: node scripts/send-job-alerts.mjs --fixture scripts/sample-alerts.json  (times like \"-5h\" mean 5 hours ago)",
+  "users": [
+    { "id": "u_ana", "role": "jobseeker", "alerts": true, "alertsScope": "city", "alertsToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "email": "ana@example.com", "fullName": "Ana Reyes", "city": "Bacolod City", "jobCategories": ["Yaya / Nanny", "Cook"] },
+    { "id": "u_ben", "role": "jobseeker", "alerts": true, "alertsScope": "all", "alertsToken": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "email": "ben@example.com", "fullName": "Ben Santos", "city": "Silay City", "jobCategories": ["Driver", "Other"], "jobCategoryOther": "Tutor" },
+    { "id": "u_cora", "role": "jobseeker", "alerts": true, "alertsScope": "city", "alertsToken": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", "email": "cora@example.com", "fullName": "Cora", "city": "Talisay City", "jobCategories": ["Driver"] },
+    { "id": "u_dan", "role": "jobseeker", "alerts": true, "alertsScope": "all", "alertsToken": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", "email": "dan@example.com", "fullName": "Dan (banned)", "city": "Bacolod City", "jobCategories": ["Cook"] },
+    { "id": "u_eve", "role": "jobseeker", "alerts": true, "alertsScope": "all", "alertsToken": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", "email": "eve@example.com", "fullName": "Eve (unsubscribed)", "city": "Bacolod City", "jobCategories": ["Cook"] },
+    { "id": "u_fe", "role": "employer", "alerts": true, "alertsToken": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", "email": "fe@example.com", "fullName": "Employer", "city": "Bacolod City", "jobCategories": ["Cook"] }
+  ],
+  "jobs": [
+    { "id": "j1", "status": "approved", "approvedAt": "-5h", "expiresAt": "720h", "title": "Live-in Yaya for 2 kids", "category": "Yaya / Nanny", "city": "Bacolod City", "area": "Mandalagan", "workplace": "household", "employerName": "Reyes Family", "salaryMin": 7000, "salaryMax": 8000, "salaryPeriod": "month", "schedule": "Full-time", "arrangement": "Live-in", "ownerUid": "e1" },
+    { "id": "j2", "status": "approved", "approvedAt": "-20h", "expiresAt": "720h", "title": "Cook for carinderia", "category": "Cook", "city": "Bacolod City", "workplace": "business", "employerName": "Inasal Express", "salaryMin": 450, "salaryPeriod": "day", "schedule": "Full-time", "ownerUid": "e2" },
+    { "id": "j3", "status": "approved", "approvedAt": "-100h", "expiresAt": "720h", "title": "Old cook job (older than 3 days)", "category": "Cook", "city": "Bacolod City", "employerName": "X", "salaryPeriod": "month", "ownerUid": "e3" },
+    { "id": "j4", "status": "approved", "approvedAt": "-3h", "expiresAt": "720h", "title": "Family driver", "category": "Driver", "city": "Bago City", "workplace": "household", "employerName": "Lim", "salaryMin": 12000, "salaryPeriod": "month", "ownerUid": "e4" },
+    { "id": "j5", "status": "approved", "approvedAt": "-3h", "expiresAt": "720h", "title": "Math tutor", "category": "Other", "categoryOther": "tutor", "city": "Bacolod City", "workplace": "business", "employerName": "Learn Hub", "salaryMin": 300, "salaryPeriod": "hour", "ownerUid": "e5" },
+    { "id": "j6", "status": "approved", "approvedAt": "-3h", "expiresAt": "720h", "title": "Massage therapist", "category": "Other", "categoryOther": "Massage therapist", "city": "Bacolod City", "employerName": "Spa", "salaryPeriod": "day", "ownerUid": "e6" },
+    { "id": "j7", "status": "approved", "approvedAt": "-2h", "expiresAt": "-1h", "title": "Expired cook", "category": "Cook", "city": "Bacolod City", "employerName": "Y", "salaryPeriod": "day", "ownerUid": "e7" }
+  ],
+  "alertState": [ { "id": "u_ana", "lastSentAt": "-10h" } ],
+  "bans": [ { "id": "u_dan" } ],
+  "unsubscribes": [ { "id": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE" } ]
+}

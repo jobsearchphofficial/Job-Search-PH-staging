@@ -1,0 +1,46 @@
+# Sends the daily job alert emails (scripts/send-job-alerts.mjs) through Resend.
+# Needs repo secrets FIREBASE_SERVICE_ACCOUNT and RESEND_API_KEY.
+# Optional repo variable SITE_URL (set it to https://staging.jobsearchph.com in the staging repo).
+name: Job alert emails
+
+on:
+  schedule:
+    - cron: "41 22 * * *" # 6:41 AM Philippine time, every day
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run = read real data and print the emails, send nothing"
+        type: choice
+        options: [dry-run, send]
+        default: dry-run
+      only:
+        description: "Send only to this one opted-in email (optional)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-alerts
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Send alerts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SITE_URL: ${{ vars.SITE_URL }}
+          MODE: ${{ github.event_name == 'schedule' && 'send' || inputs.mode }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set --
+          if [ "$MODE" = "dry-run" ]; then set -- "$@" --dry-run; fi
+          if [ -n "$ONLY" ]; then set -- "$@" --only "$ONLY"; fi
+          node scripts/send-job-alerts.mjs "$@"
