@@ -49,9 +49,16 @@ Set in `assets/store.js` (`LIMITS`) and enforced in `firestore.rules`. Change bo
 
 Add `?src=<name>` to any link, e.g. `https://jobsearchph.com/?src=fb-bacolod-group`. The name is saved on the person's profile when they sign up, and **Admin → Analytics → Where users come from** shows sign-ups, posts and applications per source. Admin → Analytics also has a link maker.
 
-## Public job pages (Google for Jobs)
+## Search engines (SEO)
 
-`scripts/build-job-pages.mjs` builds `/jobs/<id>/` pages and `sitemap.xml` from live jobs. The GitHub Action `.github/workflows/job-pages.yml` runs it every 2 hours. Private households appear as "Private household in <city>" on these pages; only businesses show their name and street address.
+The app uses `#/...` addresses, which Google treats as one page, so everything search engines should index is a real static page:
+
+- **Job pages** `/jobs/<title>-<city>-<id>/` with JobPosting data (Google for Jobs), **category pages** `/jobs/kasambahay/`, **place pages** `/jobs/in/bacolod-city/`, the `/jobs/` list, `sitemap.xml` and `robots.txt` are rebuilt from live jobs by `scripts/build-job-pages.mjs` (the GitHub Action `.github/workflows/job-pages.yml` runs it every 2 hours; make sure it commits `jobs/`, `sitemap.xml` and `robots.txt`).
+- **Information pages** (`/about/`, `/how-it-works/`, `/employers/`, `/safety/`, `/faq/`, `/contact/`, `/terms/`, `/privacy/`) and `404.html` are written by `node scripts/build-static-pages.mjs` and committed. Their text is in `scripts/seo/pages.mjs` and `assets/content.js` (the Terms, Privacy, Safety and FAQ text is shared with the app). Re-run the script after editing either file.
+- Rules: only live, approved, unexpired jobs with a real description and no scam wording get a page. Category and place pages are indexed once they have 2+ jobs (Bacolod, Negros Occidental, Kasambahay and Yaya are always indexed). Pages show "Private household in <city>" instead of family names, and phone numbers and emails are removed.
+- A job that is filled, closed or expired disappears on the next build and visitors see the "no longer available" 404 page.
+- **Check before you push:** `node scripts/seo-check.mjs` (also runs in GitHub Actions). Test the generator with `node scripts/build-job-pages.mjs --fixture scripts/sample-jobs.json --out /tmp/site`.
+- Details, keyword plan and monitoring checklist: `docs/seo/`.
 
 ## Files
 
@@ -65,7 +72,11 @@ Add `?src=<name>` to any link, e.g. `https://jobsearchph.com/?src=fb-bacolod-gro
 | `firestore.rules` | Database security rules |
 | `assets/match.js` | Fit score (applicant vs. job), shared by the site and the emails |
 | `assets/safety.js` | Spots scam-looking chat messages, shared by the chat and the emails |
-| `scripts/build-job-pages.mjs` | Static job pages for search engines |
+| `scripts/build-job-pages.mjs` | Static job, category and place pages, sitemap and robots.txt |
+| `scripts/build-static-pages.mjs` | Static information pages and the 404 page |
+| `scripts/seo-check.mjs` | SEO regression check |
+| `scripts/seo/` | Shared SEO page code and hand-written page text |
+| `assets/content.js` | Terms, Privacy, Safety and FAQ text shared by the app and the static pages |
 | `scripts/send-emails.mjs` | Automatic emails every 15 minutes (see below) |
 | `scripts/send-job-alerts.mjs` | Daily job alerts for jobseekers |
 | `scripts/lib/` | Shared Firestore and email code for the two email scripts |

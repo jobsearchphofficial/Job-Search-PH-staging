@@ -1,0 +1,24 @@
+# Fails a push or pull request that would hurt search results: missing titles, bad canonicals,
+# broken links, invalid job data, leaked private details, or out-of-date information pages.
+# Runs on test data only (no secrets, no network). Locally: node scripts/seo-check.mjs
+name: SEO check
+
+on:
+  push:
+    paths: ["index.html", "404.html", "about/**", "contact/**", "employers/**", "faq/**", "how-it-works/**", "privacy/**", "safety/**", "terms/**", "assets/content.js", "assets/safety.js", "scripts/seo/**", "scripts/build-*.mjs", "scripts/seo-check.mjs", "scripts/sample-jobs.json", ".github/workflows/seo-check.yml"]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  seo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node scripts/seo-check.mjs
