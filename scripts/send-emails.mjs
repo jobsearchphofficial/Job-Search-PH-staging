@@ -132,24 +132,35 @@ async function postUpdates(since) {
   return pendingForAdmin;
 }
 
+/* ---------- Get Verified: delete ID photos nobody checked within 14 days ---------- */
+async function expireVerify() {
+  const reqs = await query("verifyRequests", [["status", "EQUAL", "pending"]]).catch(() => []);
+  for (const r of reqs) {
+    if (!r.createdAt || now - r.createdAt < 14 * 86400000) continue;
+    await patch(`verifyRequests/${r.id}`, { status: "expired", reason: "Not checked within 14 days", decidedAt: new Date(now), updatedAt: new Date(now) }, ["idPhoto", "selfie"]);
+    console.log(`Expired ID check ${r.id} (photos deleted)`);
+  }
+}
+
 /* ---------- Get Verified: decisions for the employer; new requests for the admin ---------- */
 async function verifyUpdates(since) {
   const reqs = await query("verifyRequests", [["updatedAt", "GREATER_THAN", new Date(since)]]).catch(() => []);
   const pending = [];
   for (const r of reqs) {
     if (r.status === "pending") { pending.push(r); continue; }
-    if (!["approved", "rejected"].includes(r.status)) continue;
+    if (!["approved", "rejected", "expired"].includes(r.status)) continue;
     const key = `verify_${r.id}_${r.status}_${r.decidedAt || r.updatedAt}`;
     if (await seen(key)) continue;
     const emp = await getUser(r.id);
     if (!emp?.email) { await mark(key, "skipped"); continue; }
     const ok = r.status === "approved";
+    if (r.status === "expired") r.reason = "we didn't get to it within 14 days, so we deleted your photos to keep them safe";
     const body = ok
       ? `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, we checked your ID and you're now a <strong>Verified employer</strong>. The green Verified badge shows on all your job posts, so jobseekers know you're real.</p>
          <p style="margin:0;font-size:13px;color:#666666;">As promised, we deleted your ID photo and selfie. We only keep that you were verified and the type of ID.</p>${button(link("#/my", "email-verify"), "See my posts")}`
       : `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, we couldn't verify your ID this time${r.reason ? `: <strong>${esc(r.reason)}</strong>` : "."}</p>
-         <p style="margin:0;font-size:13px;color:#666666;">We deleted the photos you sent. You can send new ones from your profile, and your posts can still go live after our usual review.</p>${button(link("#/profile", "email-verify"), "Try again")}`;
-    await deliver(key, emp.email, { subject: ok ? "You're a Verified employer on Job Search PH" : "We couldn't verify your ID yet", html: layout({ title: ok ? "You're verified" : "We couldn't verify your ID yet", preheader: ok ? "The Verified badge is on your posts now." : "You can send new photos.", body, safety: false }), text: `${ok ? "You're verified." : "We couldn't verify your ID yet."} ${link(ok ? "#/my" : "#/profile", "email-verify")}` });
+         <p style="margin:0;font-size:13px;color:#666666;">We deleted the photos you sent. You can send new ones from your profile, and your posts can still go live after our usual review.</p>${button(link("#/verify", "email-verify"), "Try again")}`;
+    await deliver(key, emp.email, { subject: ok ? "You're a Verified employer on Job Search PH" : "We couldn't verify your ID yet", html: layout({ title: ok ? "You're verified" : "We couldn't verify your ID yet", preheader: ok ? "The Verified badge is on your posts now." : "You can send new photos.", body, safety: false }), text: `${ok ? "You're verified." : "We couldn't verify your ID yet."} ${link(ok ? "#/my" : "#/verify", "email-verify")}` });
     if (capped) break;
   }
   return pending;
@@ -254,6 +265,7 @@ async function main() {
     await newApplicants(since);
     const pending = capped ? [] : await postUpdates(since);
     const flagged = await scanChats(since).catch((e) => { console.error(`Chat scan failed: ${e.message}`); return []; });
+    await expireVerify().catch((e) => console.error(`ID check cleanup failed: ${e.message}`));
     const verifyReqs = capped ? [] : await verifyUpdates(since);
     if (!capped) await adminSummary(since, pending, flagged, verifyReqs);
     if (!capped) await employerReminders();

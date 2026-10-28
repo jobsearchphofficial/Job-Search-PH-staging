@@ -1086,3 +1086,47 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .vr-pics figcaption { font-size: .78rem; color: var(--slate); margin-top: 4px; }
 .verify-card > .btn { justify-self: start; }
 .profile-wrap > .verify-card { max-width: 779px; box-sizing: border-box; }
+
+/* Get Verified page */
+.vp-wrap { max-width: 1060px; }
+.vp-head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+.vp-head h1 { margin: 2px 0 4px; }
+.vp-shield { flex: none; width: 52px; height: 52px; border-radius: 16px; background: var(--green-soft); color: var(--green); display: grid; place-items: center; }
+.vp-shield svg { width: 30px; height: 30px; }
+.vp-again { margin-bottom: 16px; }
+.vp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; align-items: start; }
+.vp-steps { display: grid; gap: 16px; }
+.vp-step { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow-sm); display: grid; gap: 12px; }
+.vp-step > header { display: flex; gap: 12px; align-items: flex-start; }
+.vp-step > header h2 { font-size: 1.05rem; margin: 2px 0 2px; }
+.vp-step > header p { margin: 0; }
+.vp-step .num { flex: none; width: 28px; height: 28px; border-radius: 9px; background: var(--indigo-soft); color: var(--indigo); font-weight: 700; display: grid; place-items: center; font-size: .9rem; }
+.vp-ids { display: flex; flex-wrap: wrap; gap: 8px; }
+.vp-id input { position: absolute; opacity: 0; pointer-events: none; }
+.vp-id span { display: inline-block; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--navy); font-size: .9rem; cursor: pointer; transition: border-color .15s, background .15s; }
+.vp-id input:checked + span { border-color: var(--indigo); background: var(--indigo-soft); color: var(--indigo); font-weight: 600; }
+.vp-id input:focus-visible + span { outline: 2px solid var(--indigo); outline-offset: 2px; }
+.vp-drop { position: relative; display: grid; place-items: center; min-height: 190px; border: 2px dashed var(--line-strong); border-radius: var(--radius); background: var(--bg); cursor: pointer; overflow: hidden; transition: border-color .15s, background .15s; }
+.vp-drop:hover { border-color: var(--indigo); background: var(--indigo-soft); }
+.vp-drop.has { border-style: solid; border-color: var(--ok-line); }
+.vp-drop.busy { opacity: .6; pointer-events: none; }
+.vp-empty { display: grid; justify-items: center; gap: 4px; color: var(--slate); text-align: center; padding: 16px; }
+.vp-empty strong { color: var(--navy); }
+.vp-drop img { width: 100%; max-height: 340px; object-fit: contain; display: block; }
+.vp-retake { position: absolute; right: 10px; bottom: 10px; background: rgba(22, 32, 70, .82); color: #fff; font-size: .8rem; font-weight: 600; padding: 6px 12px; border-radius: 999px; }
+.vp-tips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .84rem; }
+.vp-tips .ok { color: var(--green); } .vp-tips .no { color: var(--red); }
+.vp-side { position: sticky; top: 90px; }
+.vp-privacy { background: var(--green-soft); border: 1px solid var(--ok-line); border-radius: var(--radius); padding: 16px 18px; color: var(--navy); }
+.vp-privacy > strong { display: flex; gap: 8px; align-items: center; color: var(--green); }
+.vp-privacy > strong svg { width: 20px; height: 20px; }
+.vp-privacy ul { margin: 10px 0; padding-left: 18px; display: grid; gap: 8px; font-size: .88rem; line-height: 1.45; }
+.vp-track { list-style: none; padding: 0; margin: 0 0 18px; display: grid; gap: 0; max-width: 520px; }
+.vp-track li { position: relative; padding: 0 0 18px 34px; display: grid; }
+.vp-track li::before { content: ""; position: absolute; left: 0; top: 2px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line-strong); background: var(--card); }
+.vp-track li::after { content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: var(--line); }
+.vp-track li:last-child::after { display: none; }
+.vp-track li.done::before { background: var(--green); border-color: var(--green); }
+.vp-track li.now::before { border-color: var(--indigo); box-shadow: 0 0 0 4px var(--indigo-soft); }
+.vp-track span { color: var(--slate); font-size: .88rem; }
+@media (max-width: 860px) { .vp-grid { grid-template-columns: 1fr; } .vp-side { position: static; order: -1; } }

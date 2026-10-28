@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793194736";
-import { IS_STAGING } from "./firebase-config.js?v=1793194736";
-import { fitScore, rankApplicants } from "./match.js?v=1793194736";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793194736";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793195003";
+import { IS_STAGING } from "./firebase-config.js?v=1793195003";
+import { fitScore, rankApplicants } from "./match.js?v=1793195003";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793195003";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -308,8 +308,20 @@ function shrinkPhoto(file) {
   });
 }
 // Shrink a photo to a JPEG data URL: longest side up to maxSide, under maxChars (the database stores it inline).
+// Redrawing on a canvas also drops the photo's hidden details (GPS location, camera, date).
+// watermark: text stamped diagonally across the whole photo, so a leaked copy can't be reused elsewhere.
 const shrinkChatPhoto = (file) => shrinkImage(file, 1280, 140000);
-function shrinkImage(file, maxSide, maxChars) {
+function stampWatermark(c, ctx, text) {
+  const fs = Math.max(14, Math.round(Math.min(c.width, c.height) / 16));
+  ctx.save(); ctx.font = `700 ${fs}px Arial, sans-serif`; ctx.textBaseline = "middle";
+  ctx.translate(c.width / 2, c.height / 2); ctx.rotate(-Math.PI / 7);
+  const w = ctx.measureText(text).width + fs * 2, diag = Math.hypot(c.width, c.height);
+  ctx.lineWidth = Math.max(1, fs / 14); ctx.strokeStyle = "rgba(0,0,0,.22)"; ctx.fillStyle = "rgba(255,255,255,.38)";
+  for (let y = -diag / 2, row = 0; y < diag / 2; y += fs * 3.2, row++)
+    for (let x = -diag / 2 - (row % 2) * w / 2; x < diag / 2; x += w) { ctx.strokeText(text, x, y); ctx.fillText(text, x, y); }
+  ctx.restore();
+}
+function shrinkImage(file, maxSide, maxChars, watermark = "") {
   return new Promise((resolve, reject) => {
     if (!/^image\//.test(file.type)) return reject(new Error("Choose a photo (JPG or PNG)."));
     const img = new Image(); const url = URL.createObjectURL(file);
@@ -320,6 +332,7 @@ function shrinkImage(file, maxSide, maxChars) {
         const k = Math.min(1, max / Math.max(img.width, img.height));
         const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
         const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+        if (watermark) stampWatermark(c, ctx, watermark);
         let q = 0.8; out = c.toDataURL("image/jpeg", q);
         while (out.length > maxChars && q > 0.45) { q -= 0.1; out = c.toDataURL("image/jpeg", q); }
         if (out.length <= maxChars) return resolve(out);
@@ -1384,54 +1397,16 @@ function viewProfile() {
       ${isNew ? `<ul>${ROLES[k].points.map((t) => `<li>${t}</li>`).join("")}</ul>` : ""}
     </button>`;
 
-  // "Get the Verified badge" card for employers: ID photo + selfie, checked by an admin.
+  // "Get the Verified badge" card for employers. The ID check itself is on its own page (#/verify).
   const paintVerify = async () => {
     const box = $("#verify-card"); if (!box) return;
     if (VERIFIED[user.uid]) { box.innerHTML = `<div class="vc-done">${SHIELD}<div><strong>You're a Verified employer.</strong><span class="small muted"> The badge shows on all your posts.</span></div></div>`; return; }
     const req = await store.myVerifyRequest();
     if (!$("#verify-card")) return;
-    if (req?.status === "pending") {
-      box.innerHTML = `<div class="vc-head">${SHIELD}<div><strong>We're checking your ID.</strong><p class="small muted">Usually within a day. We'll email you when it's done. Your ID photo and selfie are deleted as soon as we decide.</p></div></div>
-        <button class="btn btn-ghost btn-sm" type="button" id="vc-withdraw">Cancel my request</button>`;
-      $("#vc-withdraw").addEventListener("click", async (e) => { if (!confirmInline(e.target, "Click again to cancel")) return; await store.withdrawVerify().catch(() => {}); paintVerify(); });
-      return;
-    }
-    const again = req?.status === "rejected";
-    box.innerHTML = `<div class="vc-head">${SHIELD}<div><strong>${again ? "We couldn't verify you yet" : "Get the Verified badge"}</strong>
-        <p class="small muted">${again ? `${req.reason ? `Reason: ${esc(req.reason)}. ` : ""}You can send new photos.` : "Jobseekers trust Verified employers more, and your posts get approved faster. It takes 2 minutes."}</p></div></div>
-      <button class="btn btn-primary btn-sm" type="button" id="vc-open">${again ? "Try again" : "Get verified"}</button>
-      <form id="vc-form" class="form vc-form" hidden novalidate>
-        <label>Type of ID<select name="idType" required><option value="">Choose…</option>${opts(ID_TYPES, "")}</select></label>
-        <div class="vc-pics">
-          <label class="vc-pick"><span class="label">Photo of your ID</span><input type="file" name="idPhoto" accept="image/*"><img alt="" hidden><span class="hint">The front, with your name and photo easy to read.</span></label>
-          <label class="vc-pick"><span class="label">Selfie holding your ID</span><input type="file" name="selfie" accept="image/*" capture="user"><img alt="" hidden><span class="hint">Your face and the ID together in one photo.</span></label>
-        </div>
-        <label>Facebook profile or page (optional)<input name="fbUrl" type="url" maxlength="200" placeholder="https://facebook.com/yourname" value="${esc(p.fbUrl || "")}"></label>
-        <label class="check small"><input type="checkbox" name="consent"><span>I agree that Job Search PH may look at my ID and selfie only to confirm I'm a real employer. They're deleted as soon as a decision is made. We only keep that you were verified and the type of ID.</span></label>
-        <p class="error" id="vc-error" hidden></p>
-        <button class="btn btn-primary" type="submit">Send for checking</button>
-      </form>`;
-    const f = $("#vc-form"); const pics = {};
-    $("#vc-open").addEventListener("click", () => { f.hidden = false; $("#vc-open").hidden = true; f.idType.focus(); });
-    f.querySelectorAll("input[type=file]").forEach((inp) => inp.addEventListener("change", async () => {
-      const file = inp.files?.[0]; if (!file) return;
-      try { pics[inp.name] = await shrinkImage(file, 1600, 290000); const im = inp.parentElement.querySelector("img"); im.src = pics[inp.name]; im.hidden = false; }
-      catch (err) { toast(err.message); inp.value = ""; }
-    }));
-    f.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const err = $("#vc-error"); const fail = (m) => { err.textContent = m; err.hidden = false; };
-      err.hidden = true;
-      if (!f.idType.value) return fail("Choose the type of ID.");
-      if (!pics.idPhoto) return fail("Add a photo of your ID.");
-      if (!pics.selfie) return fail("Add a selfie holding your ID.");
-      let fb = f.fbUrl.value.trim(); if (fb && !/^https?:\/\//i.test(fb)) fb = `https://${fb}`;
-      if (fb && !fbHref(fb)) return fail("The Facebook link should look like https://facebook.com/yourname");
-      if (!f.consent.checked) return fail("Tick the box to agree before sending.");
-      const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Sending…";
-      try { await store.submitVerify({ idType: f.idType.value, idPhoto: pics.idPhoto, selfie: pics.selfie, fbUrl: fb }); toast("Sent. We'll email you when it's checked."); paintVerify(); }
-      catch (ex) { console.error(ex); btn.disabled = false; btn.textContent = "Send for checking"; fail(ex.code === "permission-denied" ? "That didn't go through. Try smaller photos, or contact support." : `Couldn't send (${ex.code || ex.message}).`); }
-    });
+    const st = req?.status;
+    box.innerHTML = `<div class="vc-head">${SHIELD}<div><strong>${st === "pending" ? "We're checking your ID" : st === "rejected" || st === "expired" ? "We couldn't verify you yet" : "Get the Verified badge"}</strong>
+      <p class="small muted">${st === "pending" ? "Usually within a day. We'll email you when it's done." : st === "rejected" || st === "expired" ? "You can send new photos." : "Jobseekers trust Verified employers more, and your posts get approved faster. It takes 2 minutes."}</p></div></div>
+      <a class="btn ${st === "pending" ? "btn-ghost" : "btn-primary"} btn-sm" href="#/verify">${st === "pending" ? "See status" : st ? "Try again" : "Get verified"}</a>`;
   };
 
   const draw = () => {
@@ -1516,6 +1491,91 @@ const TITLE_FOR = {
 };
 const SCHEDULES = { household: ["Full-time", "Part-time"], business: ["Full-time", "Part-time", "Project-based", "Shifts"] };
 const RECOMMENDED = ["SSS", "PhilHealth", "Pag-IBIG", "13th month pay"];
+
+/* ---------------- Get Verified (its own page): ID photo + selfie, checked by an admin ---------------- */
+async function viewVerify() {
+  document.title = "Get Verified | Job Search PH";
+  const { user, profile } = getAuthState();
+  if (!user) return goSignIn("Sign in to get verified");
+  if (!profile) { location.hash = "#/profile"; return; }
+  const back = `<p><a href="#/profile" class="back">← My profile</a></p>`;
+  if (profile.role !== "employer") { app.innerHTML = `${back}<div class="empty"><h1>For employers</h1><p class="muted">The Verified badge is for employers who post jobs.</p></div>`; return; }
+  app.innerHTML = `${back}${SK.page()}`;
+  const req = await store.myVerifyRequest();
+  if (location.hash !== "#/verify") return;
+  const head = (title, sub) => `<header class="vp-head"><span class="vp-shield">${SHIELD}</span><div><p class="kicker">Get Verified</p><h1>${title}</h1><p class="muted">${sub}</p></div></header>`;
+  const privacy = `<aside class="vp-side"><div class="vp-privacy"><strong>${GI.shield || ""}How we protect your ID</strong><ul>
+      <li>Only Job Search PH admins see it. It's never shown on your profile or posts.</li>
+      <li>We stamp <em>"Job Search PH · verification only"</em> across your photos on your phone, before they're sent, so they can't be reused anywhere else.</li>
+      <li>Location and camera details are removed from the photos.</li>
+      <li>Deleted as soon as we decide, or after 14 days if we haven't.</li>
+      <li>We keep only: that you're verified, the type of ID, and the date.</li></ul>
+      <p class="small muted">Protected under the Data Privacy Act (RA 10173). <a href="#/privacy">Privacy policy</a></p></div></aside>`;
+  if (VERIFIED[user.uid]) {
+    app.innerHTML = `${back}<div class="vp-wrap">${head("You're a Verified employer", "The green Verified badge shows on all your job posts.")}<p><a class="btn btn-primary" href="#/my">See my posts</a></p></div>`;
+    return;
+  }
+  if (req?.status === "pending") {
+    app.innerHTML = `${back}<div class="vp-wrap">${head("We're checking your ID", "Usually within a day. We'll email you and send a notification when it's done.")}
+      <ol class="vp-track"><li class="done"><strong>Sent</strong><span>${req.createdAt ? ago(req.createdAt) : ""} · ${esc(req.idType || "ID")}</span></li><li class="now"><strong>Checking</strong><span>An admin compares your ID with your selfie</span></li><li><strong>Verified badge</strong><span>Shows on all your posts</span></li></ol>
+      <p class="small muted">Sent the wrong photos? Cancel and send them again.</p><button class="btn btn-ghost btn-sm" type="button" id="vp-cancel">Cancel my request</button></div>`;
+    $("#vp-cancel").addEventListener("click", async (e) => { if (!confirmInline(e.target, "Click again to cancel")) return; await store.withdrawVerify().catch(() => {}); toast("Request cancelled. Your photos were deleted."); viewVerify(); });
+    return;
+  }
+  const again = req?.status === "rejected" || req?.status === "expired";
+  const drop = (name, title, hint, tips, capture) => `
+    <section class="vp-step"><header><span class="num">${name === "idPhoto" ? 2 : 3}</span><div><h2>${title}</h2><p class="muted small">${hint}</p></div></header>
+      <label class="vp-drop" data-drop="${name}"><input type="file" name="${name}" accept="image/*" capture="${capture}" hidden>
+        <span class="vp-empty"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><strong>Take or upload a photo</strong><small>JPG or PNG</small></span>
+        <img alt="" hidden><span class="vp-retake" hidden>Retake</span></label>
+      <ul class="vp-tips">${tips.map(([ok, t]) => `<li class="${ok ? "ok" : "no"}">${ok ? "✓" : "✕"} ${t}</li>`).join("")}</ul>
+    </section>`;
+  app.innerHTML = `${back}<div class="vp-wrap">${head("Show jobseekers you're real", "It takes about 2 minutes. You'll need a valid government ID and your phone's camera.")}
+    ${again ? `<div class="notice vp-again"><strong>We couldn't verify you last time.</strong> ${req.status === "expired" ? "Your request expired before we checked it." : req.reason ? `Reason: ${esc(req.reason)}.` : ""} Please send new photos.</div>` : ""}
+    <div class="vp-grid">
+      <form id="vp-form" class="vp-steps" novalidate>
+        <section class="vp-step"><header><span class="num">1</span><div><h2>Which ID will you use?</h2><p class="muted small">Any valid government ID with your photo.</p></div></header>
+          <div class="vp-ids" role="radiogroup">${ID_TYPES.map((t) => `<label class="vp-id"><input type="radio" name="idType" value="${esc(t)}"><span>${esc(t)}</span></label>`).join("")}</div></section>
+        ${drop("idPhoto", "Take a photo of your ID", "The front side, with your name, photo and ID number easy to read.", [[1, "The whole ID is in the frame"], [1, "Flat surface, good light, no glare"], [0, "No photocopies, screenshots or edited photos"]], "environment")}
+        ${drop("selfie", "Take a selfie holding your ID", "Hold the same ID next to your face. Both should be clear.", [[1, "Your face and the ID are both visible"], [1, "Same ID as in step 2"], [0, "No sunglasses, mask or cap"]], "user")}
+        <section class="vp-step"><header><span class="num">4</span><div><h2>Review and send</h2></div></header>
+          <label class="fld">Facebook profile or page (optional, helps us check faster)<input name="fbUrl" type="url" maxlength="200" placeholder="https://facebook.com/yourname" value="${esc(profile.fbUrl || "")}"></label>
+          <label class="check small"><input type="checkbox" name="consent"><span>I agree that Job Search PH may look at my ID and selfie only to confirm I'm a real employer, as described in the box on this page.</span></label>
+          <p class="error" id="vp-error" hidden></p>
+          <button class="btn btn-primary btn-lg" type="submit">Send for checking</button>
+        </section>
+      </form>
+      ${privacy}
+    </div></div>`;
+  const f = $("#vp-form"); const pics = {};
+  f.addEventListener("change", () => { $("#vp-error").hidden = true; });
+  const stamp = `JOB SEARCH PH · VERIFICATION ONLY · ${new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}`;
+  f.querySelectorAll("input[type=file]").forEach((inp) => inp.addEventListener("change", async () => {
+    const file = inp.files?.[0]; if (!file) return;
+    const box = inp.closest(".vp-drop"); box.classList.add("busy");
+    try {
+      pics[inp.name] = await shrinkImage(file, 1600, 290000, stamp);
+      const im = box.querySelector("img"); im.src = pics[inp.name]; im.hidden = false;
+      box.querySelector(".vp-empty").hidden = true; box.querySelector(".vp-retake").hidden = false; box.classList.add("has");
+    } catch (err) { toast(err.message); }
+    box.classList.remove("busy"); inp.value = ""; // the original file isn't kept anywhere
+  }));
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("#vp-error"); const fail = (m, el) => { err.textContent = m; err.hidden = false; (el || err).scrollIntoView({ block: "center", behavior: "smooth" }); };
+    err.hidden = true;
+    const idType = f.querySelector("[name=idType]:checked")?.value;
+    if (!idType) return fail("Choose the type of ID (step 1).", f.querySelector(".vp-ids"));
+    if (!pics.idPhoto) return fail("Add a photo of your ID (step 2).", f.querySelector('[data-drop="idPhoto"]'));
+    if (!pics.selfie) return fail("Add a selfie holding your ID (step 3).", f.querySelector('[data-drop="selfie"]'));
+    let fb = f.fbUrl.value.trim(); if (fb && !/^https?:\/\//i.test(fb)) fb = `https://${fb}`;
+    if (fb && !fbHref(fb)) return fail("The Facebook link should look like https://facebook.com/yourname", f.fbUrl);
+    if (!f.consent.checked) return fail("Tick the box to agree before sending.", f.consent);
+    const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Sending securely…";
+    try { await store.submitVerify({ idType, idPhoto: pics.idPhoto, selfie: pics.selfie, fbUrl: fb }); toast("Sent. We'll email you when it's checked."); viewVerify(); }
+    catch (ex) { console.error(ex); btn.disabled = false; btn.textContent = "Send for checking"; fail(ex.code === "permission-denied" ? "That didn't go through. Try smaller photos, or contact support." : `Couldn't send (${ex.code || ex.message}).`); }
+  });
+}
 
 // "Confirm your email" box for email + password accounts that haven't clicked the link yet.
 function confirmEmailBox(why) {
@@ -3068,7 +3128,7 @@ function viewStatic(page) {
     privacy: {
       title: "Privacy policy",
       html: legalPage("Privacy policy", "How Job Search PH collects, uses and protects your personal data, in line with the Data Privacy Act of 2012 (RA 10173) and the rules of the National Privacy Commission.", [
-        ["Data we collect", `<ul><li><strong>Account:</strong> your email and sign-in method (Google, Facebook, or email and password). If you use Facebook, we only receive your name, email and profile picture, and we never post to your Facebook.</li><li><strong>Jobseeker profile:</strong> name, photo (optional), birthdate (we show employers your age, not your birthdate), gender, mobile number, city, Messenger, jobs wanted, experience, skills, work history, education and resume link.</li><li><strong>Employer profile:</strong> name, photo (optional), household or business name, mobile number, city and Messenger.</li><li><strong>Activity on the site:</strong> job posts, applications, chat messages, interview and hiring status, notifications, reports and support messages.</li><li><strong>Get Verified (employers, optional):</strong> a photo of your ID and a selfie holding it. Only Job Search PH admins see them, only to confirm you're a real employer, and they're deleted as soon as we approve or reject. We keep only that you were verified and the type of ID.</li><li><strong>Anti-spam counters:</strong> how many applications, posts, messages and reports you sent today.</li><li><strong>On your device only:</strong> your light or dark mode choice.</li></ul><p>We don't use advertising trackers, and we don't sell your data.</p>`],
+        ["Data we collect", `<ul><li><strong>Account:</strong> your email and sign-in method (Google, Facebook, or email and password). If you use Facebook, we only receive your name, email and profile picture, and we never post to your Facebook.</li><li><strong>Jobseeker profile:</strong> name, photo (optional), birthdate (we show employers your age, not your birthdate), gender, mobile number, city, Messenger, jobs wanted, experience, skills, work history, education and resume link.</li><li><strong>Employer profile:</strong> name, photo (optional), household or business name, mobile number, city and Messenger.</li><li><strong>Activity on the site:</strong> job posts, applications, chat messages, interview and hiring status, notifications, reports and support messages.</li><li><strong>Get Verified (employers, optional):</strong> a photo of your ID and a selfie holding it. They're stamped "Job Search PH · verification only" on your device before sending, and their location and camera details are removed. Only Job Search PH admins see them, only to confirm you're a real employer. They're deleted as soon as we approve or reject, or after 14 days if we haven't. We keep only that you were verified, the type of ID and the date.</li><li><strong>Anti-spam counters:</strong> how many applications, posts, messages and reports you sent today.</li><li><strong>On your device only:</strong> your light or dark mode choice.</li></ul><p>We don't use advertising trackers, and we don't sell your data.</p>`],
         ["Why we use it", `<ul><li>To run your account and show your posts, applications and messages;</li><li>To share your profile with employers you apply to, and employer contact details with the worker they hire;</li><li>To review job posts, prevent spam, fraud and abuse, and handle reports and appeals;</li><li>To reply to support requests and improve the site;</li><li>If you turn on job alerts, to email you new jobs that match the jobs and city on your profile. Emails are sent through our email provider, Resend. Unsubscribe with the link in any email or in My profile.</li></ul>`],
         ["Who can see it", `<ul><li><strong>Everyone:</strong> live job posts (title, employer or household name, area, pay and details). Employer contact details are not public.</li><li><strong>Employers you apply to:</strong> your profile, photo, age, contact details, message, experience and resume.</li><li><strong>The worker you hire:</strong> the employer contact you entered on the post, once they accept your job offer.</li><li><strong>The person you're chatting with:</strong> your messages.</li><li><strong>Job Search PH admins:</strong> all data, only to run and keep the site safe.</li><li><strong>Service provider:</strong> the site runs on Google Firebase, which stores data for us under its own security and privacy terms.</li></ul><p>We may also disclose data when the law requires it, such as a lawful order from the authorities.</p>`],
         ["How long we keep it", `<ul><li>Your profile stays until you delete it.</li><li>Job posts expire after 30 days and stay in your account until removed.</li><li>Applications and chats stay so both sides can refer back to them. Chats with declined applicants close after 48 hours but remain readable.</li><li>Reports and safety records are kept as long as needed to protect users, then deleted.</li></ul>`],
@@ -3118,6 +3178,7 @@ async function route() {
   if (page === "job" && arg) { let raw = arg; try { raw = decodeURIComponent(arg); } catch {} const id = (raw.match(/^[A-Za-z0-9_-]+/) || [""])[0]; if (id && id !== raw) { history.replaceState(null, "", `${location.pathname}${location.search}#/job/${id}`); } return viewJob(id); }
   if (page === "signin") return viewSignIn();
   if (page === "profile") return viewProfile();
+  if (page === "verify") return viewVerify();
   if (page === "post") return viewPost(arg === "edit" && arg2 ? decodeURIComponent(arg2) : null);
   if (page === "my") return viewMy();
   if (page === "applicants" && arg) return viewApplicants(decodeURIComponent(arg));

@@ -80,9 +80,9 @@ export async function get(path) {
   return d ? docOut(d) : null;
 }
 
-// Sets only the given fields (creates the document if needed).
-export async function patch(path, data) {
-  const mask = Object.keys(data).map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join("&");
+// Sets only the given fields (creates the document if needed). removeFields are deleted.
+export async function patch(path, data, removeFields = []) {
+  const mask = [...Object.keys(data), ...removeFields].map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join("&");
   await api("PATCH", `/${path}?${mask}`, { fields: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, toValue(v)])) });
 }
 
