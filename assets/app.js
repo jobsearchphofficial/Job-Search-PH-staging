@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793207653";
-import { IS_STAGING } from "./firebase-config.js?v=1793207653";
-import { fitScore, rankApplicants } from "./match.js?v=1793207653";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793207653";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793208108";
+import { IS_STAGING } from "./firebase-config.js?v=1793208108";
+import { fitScore, rankApplicants } from "./match.js?v=1793208108";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793208108";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -712,7 +712,7 @@ $("#nav-toggle").addEventListener("click", () => {
 });
 document.addEventListener("click", async (e) => {
   const a = e.target.closest("[data-action]"); if (!a) return;
-  if (a.dataset.action === "signout") { $("#gear-wrap").classList.remove("open"); await store.signOut(); myAppsCache = null; toast("Signed out"); location.hash = "#/"; }
+  if (a.dataset.action === "signout") { $("#gear-wrap").classList.remove("open"); await signOutAndReload(); }
   if (a.dataset.action === "gosignin") { e.preventDefault(); goSignIn(a.dataset.purpose, a.dataset.intent); }
 });
 
@@ -1311,7 +1311,7 @@ function viewProfile(focus) {
     });
     $("#del-profile")?.addEventListener("click", async (e) => {
       if (!confirmInline(e.target, "Click again to delete")) return;
-      try { await store.deleteProfile(); myAppsCache = null; toast("Profile deleted"); await store.signOut(); location.hash = "#/"; }
+      try { await store.deleteProfile(); myAppsCache = null; await signOutAndReload("deleted"); }
       catch { toast("Could not delete profile"); }
     });
     f.addEventListener("submit", async (e) => {
@@ -2565,7 +2565,7 @@ function viewConfirmEmail() {
   const done = () => { if (confirmWatch) { document.removeEventListener("visibilitychange", confirmWatch); confirmWatch = null; } toast("Email confirmed. Welcome!"); const to = returnTo; returnTo = ""; if (to && to !== location.hash) location.hash = to; else route(); };
   app.querySelector(".ce-card").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-ce]"); if (!b) return;
-    if (b.dataset.ce === "out") { await store.signOut(); location.hash = "#/"; return; }
+    if (b.dataset.ce === "out") { await signOutAndReload(); return; }
     b.disabled = true;
     try {
       if (b.dataset.ce === "resend") { await store.sendVerification(); msg("Sent. Check your inbox (and Spam).", true); }
@@ -2630,6 +2630,28 @@ async function viewAuthAction() {
   location.hash = "#/"; route();
 }
 
+/* ---------------- Sign out: full reload (like Facebook), then a "You're signed out" page ---------------- */
+// Reloading wipes everything the last person had open (chats, applicants, profile) from the page's memory,
+// which matters on shared phones and computer-shop PCs.
+async function signOutAndReload(reason = "") {
+  document.body.classList.add("signing-out");
+  try { await store.signOut(); } catch (e) { console.error(e); }
+  try { sessionStorage.clear(); } catch {}
+  history.replaceState(null, "", `${location.pathname}${location.search}#/signedout${reason ? `/${reason}` : ""}`);
+  location.reload();
+}
+function viewSignedOut(reason) {
+  if (getAuthState().user) { location.hash = "#/"; return; }
+  document.title = "Signed out | Job Search PH";
+  const deleted = reason === "deleted";
+  app.innerHTML = `<div class="ce-wrap"><div class="ce-card">
+    <div class="ce-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></div>
+    <h1>${deleted ? "Your profile was deleted" : "You're signed out"}</h1>
+    <p class="muted">${deleted ? "Your profile and its details were removed. Thank you for using Job Search PH." : "See you again soon! If this is a shared phone or computer, your account is now safe to leave."}</p>
+    <div class="ce-actions"><a class="btn btn-primary" href="#/signin">${deleted ? "Create a new account" : "Sign in again"}</a><a class="btn btn-ghost" href="#/">Browse jobs</a></div>
+  </div></div>`;
+}
+
 function viewSuspended(ban) {
   document.title = "Account suspended | Job Search PH";
   app.innerHTML = `<div class="empty suspended">
@@ -2639,7 +2661,7 @@ function viewSuspended(ban) {
     ${ban.reason ? `<p><strong>Reason:</strong> ${esc(ban.reason)}</p>` : ""}
     <p class="muted small">If you think this is a mistake, contact us and we'll review it.</p>
     <p><a class="btn btn-primary" href="#/support">Contact support</a> <button class="btn btn-ghost" id="sus-out">Sign out</button></p></div>`;
-  $("#sus-out").addEventListener("click", async () => { await store.signOut(); location.hash = "#/"; });
+  $("#sus-out").addEventListener("click", () => signOutAndReload());
 }
 
 /* ---------------- Admin: users ---------------- */
@@ -3385,6 +3407,7 @@ async function route() {
   // Keep only the ID: share menus sometimes glue the title/text onto the link ("…/job/abc123%20Live-in%20Yaya").
   if (page === "job" && arg) { let raw = arg; try { raw = decodeURIComponent(arg); } catch {} const id = (raw.match(/^[A-Za-z0-9_-]+/) || [""])[0]; if (id && id !== raw) { history.replaceState(null, "", `${location.pathname}${location.search}#/job/${id}`); } return viewJob(id); }
   if (page === "signin") return viewSignIn();
+  if (page === "signedout") return viewSignedOut(arg);
   if (page === "profile") return viewProfile(arg === "emails" ? "emails" : "");
   if (page === "verify") return viewVerify();
   if (page === "post") return viewPost(arg === "edit" && arg2 ? decodeURIComponent(arg2) : null);

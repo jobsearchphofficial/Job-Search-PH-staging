@@ -1156,3 +1156,4 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .ce-card .error.ok { color: var(--green, #15803d); }
 .ce-card .auth-form { text-align: left; margin-top: 14px; }
 .name-needed { margin-bottom: 16px; max-width: 779px; box-sizing: border-box; }
+.signing-out #app { opacity: .4; pointer-events: none; transition: opacity .15s; }
