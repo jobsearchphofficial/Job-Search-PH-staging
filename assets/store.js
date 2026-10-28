@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS } from "./firebase-config.js?v=1793183974";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS } from "./firebase-config.js?v=1793187527";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -17,6 +17,9 @@ export const getAuthState = () => ({ ...state });
 export const uploadsEnabled = RESUME_UPLOADS;
 
 // Fields an employer submits for the public post. Contact details are stored privately.
+// Everything an employer may change when editing a post (keep in sync with firestore.rules).
+const EDITABLE = ["title", "category", "categoryOther", "employerName", "city", "area", "address", "addressHidden", "workplace", "arrangement", "schedule", "employmentType",
+  "salaryMin", "salaryMax", "salaryPeriod", "hours", "daysOff", "daysOffPer", "openings", "startDate", "benefits", "reqExperience", "reqEducation", "reqList", "requirements", "description"];
 export const JOB_FIELDS = ["title", "category", "employerName", "city", "area", "employmentType", "salaryMin", "salaryMax", "salaryPeriod", "hours", "daysOff", "openings", "startDate", "description", "requirements"];
 export const PROFILE_FIELDS = {
   common: ["role", "fullName", "phone", "city", "messenger"],
@@ -28,7 +31,7 @@ const toMs = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : v ??
 const norm = (snap) => {
   const d = snap.data();
   const out = { id: snap.id, ...d };
-  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "at"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
+  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "editedAt", "at"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
   return out;
 };
 const jobsQ = async (...c) => (await F.getDocs(F.query(F.collection(db, "jobs"), ...c))).docs.map(norm);
@@ -248,11 +251,22 @@ export const store = {
   async myJobs() { return jobsQ(F.where("ownerUid", "==", uid())); },
   async listByStatus(status) { return jobsQ(F.where("status", "==", status)); },
   async updateJob(id, patch) { await F.updateDoc(F.doc(db, "jobs", id), { ...patch, updatedAt: F.serverTimestamp() }); },
-  async approve(id) {
-    await F.updateDoc(F.doc(db, "jobs", id), {
-      status: "approved", approvedAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(),
-      expiresAt: F.Timestamp.fromMillis(Date.now() + LISTING_DAYS * DAY),
-    });
+  // An edited post that was already live keeps its original posting date and expiry,
+  // so editing can't bump a post to the top or extend it for free.
+  async approve(id, job = null) {
+    const keep = job && job.approvedAt && job.expiresAt && job.expiresAt > Date.now();
+    await F.updateDoc(F.doc(db, "jobs", id), keep
+      ? { status: "approved", updatedAt: F.serverTimestamp() }
+      : { status: "approved", approvedAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), expiresAt: F.Timestamp.fromMillis(Date.now() + LISTING_DAYS * DAY) });
+  },
+  // Employer edits their own post. It goes back to review (status pending) until an admin re-approves it.
+  async editJob(id, data, contact) {
+    const patch = { status: "pending", editedAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() };
+    EDITABLE.forEach((k) => { patch[k] = k in data && data[k] !== undefined ? data[k] : F.deleteField(); });
+    const b = F.writeBatch(db);
+    b.update(F.doc(db, "jobs", id), patch);
+    b.set(F.doc(db, "jobs", id, "private", "contact"), contact);
+    await b.commit();
   },
   async deleteJob(id) {
     await F.deleteDoc(F.doc(db, "jobs", id, "private", "contact")).catch(() => {});

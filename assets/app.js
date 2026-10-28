@@ -1,5 +1,5 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793183974";
-import { IS_STAGING } from "./firebase-config.js?v=1793183974";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793187527";
+import { IS_STAGING } from "./firebase-config.js?v=1793187527";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -958,7 +958,7 @@ async function renderApplyPanel(j, isOwner) {
     panel.innerHTML = `
       <h2>${isOwner ? "Your post" : "Admin view"}</h2>
       ${isOwner ? `<p class="muted">${apps.length} applicant${apps.length === 1 ? "" : "s"}${fresh ? ` · ${fresh} new` : ""}</p>
-      <a class="btn btn-primary btn-block" href="#/applicants/${encodeURIComponent(j.id)}">View applicants</a>` : ""}
+      <a class="btn btn-primary btn-block" href="#/applicants/${encodeURIComponent(j.id)}">View applicants</a>${j.status !== "closed" ? `<a class="btn btn-ghost btn-block" href="#/post/edit/${encodeURIComponent(j.id)}">Edit post</a>` : ""}` : ""}
       ${contact ? `<p class="small muted">Contact shown to the person you hire: ${esc(contact.contactMethod)} · ${esc(contact.contactValue)}</p>` : ""}`;
     return;
   }
@@ -1411,8 +1411,8 @@ const TITLE_FOR = {
 const SCHEDULES = { household: ["Full-time", "Part-time"], business: ["Full-time", "Part-time", "Project-based", "Shifts"] };
 const RECOMMENDED = ["SSS", "PhilHealth", "Pag-IBIG", "13th month pay"];
 
-function viewPost() {
-  document.title = "Post a job | Job Search PH";
+async function viewPost(editId = null) {
+  document.title = `${editId ? "Edit post" : "Post a job"} | Job Search PH`;
   const { user, profile } = getAuthState();
   if (!user) {
     app.innerHTML = `<div class="empty"><h1>Post a job for free</h1><p class="muted">Create a free employer account to post jobs and review applicants in one place.</p><p><a class="btn btn-primary" href="#/signin" data-action="gosignin" data-intent="employer" data-purpose="Sign in to post a job">Sign in to post a job</a></p></div>`;
@@ -1424,12 +1424,22 @@ function viewPost() {
     app.innerHTML = `<div class="empty"><h1>Hiring?</h1><p class="muted">Your profile is set to "I'm looking for work". Switch it to "I'm hiring" to post jobs.</p><p><a class="btn btn-primary" href="#/profile">Change profile type</a></p></div>`;
     return;
   }
+  // Editing an existing post: load it and check it's theirs and still editable.
+  let editJob = null, editContact = null;
+  if (editId) {
+    app.innerHTML = `<div class="empty"><p class="muted">Loading your post…</p></div>`;
+    [editJob, editContact] = await Promise.all([store.getJob(editId), store.getContact(editId)]);
+    if (!editJob || editJob.ownerUid !== user.uid) { app.innerHTML = `<div class="empty"><h1>Post not found</h1><p class="muted">You can only edit your own posts.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a></p></div>`; return; }
+    if (editJob.status === "closed") { app.innerHTML = `<div class="empty"><h1>This post is closed</h1><p class="muted">Closed posts can't be edited. Post a new job instead.</p><p><a class="btn btn-primary" href="#/post">Post a job</a></p></div>`; return; }
+  }
   const cityList = CITIES.filter((c) => c !== "Other");
   const radioPills = (name, list, sel, cls = "") => `<div class="pills ${cls}" role="radiogroup">${list.map(([v, l]) => `<label class="pill"><input type="radio" name="${name}" value="${esc(v)}" ${String(sel) === String(v) ? "checked" : ""}><span>${esc(l)}</span></label>`).join("")}</div>`;
   const stepper = (name, val, min, max) => `<div class="stepper"><button type="button" data-step="-1" data-for="${name}" aria-label="Less">−</button><input name="${name}" type="number" inputmode="numeric" min="${min}" max="${max}" value="${val}"><button type="button" data-step="1" data-for="${name}" aria-label="More">+</button></div>`;
 
   app.innerHTML = `
-    <div class="page-head"><div><p class="kicker">New job post</p><h1>Post a job</h1><p class="muted">Free to post. Reviewed within a day, then live for 30 days.</p><p class="usage" id="post-usage"></p></div></div>
+    ${editJob ? `<p><a href="#/my" class="back">← My posts</a></p>
+    <div class="page-head"><div><p class="kicker">Edit post</p><h1>${esc(editJob.title)}</h1><p class="muted">${editJob.status === "approved" ? "Saving sends your post back for a quick review. It's hidden from jobseekers until we approve the changes, usually within a day. It keeps its original expiry date, and your applicants and chats stay." : "Saving sends your post for review again."}</p></div></div>`
+    : `<div class="page-head"><div><p class="kicker">New job post</p><h1>Post a job</h1><p class="muted">Free to post. Reviewed within a day, then live for 30 days.</p><p class="usage" id="post-usage"></p></div></div>`}
     <div class="post-layout">
       <form id="post-form" class="form post-form" novalidate>
         <section class="pcard">
@@ -1525,7 +1535,7 @@ function viewPost() {
           <label class="check"><input type="checkbox" name="agreeTerms" required><span>Follow Philippine labor law, including the Kasambahay Law, and the <a href="#/terms" target="_blank">Terms</a></span></label>
         </section>
         <p id="form-error" class="error" hidden></p>
-        <button class="btn btn-primary btn-lg" type="submit">Submit for review</button>
+        <button class="btn btn-primary btn-lg" type="submit">${editJob ? "Save changes" : "Submit for review"}</button>
       </form>
       <aside class="post-side">
         <p class="label">Preview</p>
@@ -1535,7 +1545,7 @@ function viewPost() {
       </aside>
     </div>`;
 
-  if (!getAuthState().isAdmin) store.usage().then((u) => { const el = $("#post-usage"); if (el) el.textContent = `${u.postsM || 0} of ${LIMITS.posts} posts used this month`; }).catch(() => {});
+  if (!editJob && !getAuthState().isAdmin) store.usage().then((u) => { const el = $("#post-usage"); if (el) el.textContent = `${u.postsM || 0} of ${LIMITS.posts} posts used this month`; }).catch(() => {});
   const f = $("#post-form");
   const val = (n) => f.querySelector(`[name=${n}]:checked`)?.value ?? "";
   const workplace = () => val("workplace");
@@ -1657,13 +1667,32 @@ function viewPost() {
       .map((b) => ({ value: b, html: hl(b, t), meta: "Barangay" }));
   }, () => refresh(), true);
   renderOptions();
-  const draft = loadDraft("post");
+  // Edit mode: fill the form from the saved post.
+  if (editJob) {
+    const j = editJob, c = editContact || {};
+    const setRadio = (n, v) => { const r = [...f.querySelectorAll(`[name=${n}]`)].find((i) => i.value === String(v)); if (r) r.checked = true; };
+    const setVal = (n, v) => { if (f[n] && v != null) f[n].value = v; };
+    touchedBenefits = true;
+    setRadio("workplace", j.workplace || "household"); renderOptions();
+    setRadio("category", j.category); renderOptions();
+    setRadio("arrangement", j.arrangement); setRadio("schedule", j.schedule); setRadio("salaryPeriod", j.salaryPeriod || "month");
+    setRadio("reqExperience", j.reqExperience || 0); setRadio("reqEducation", j.reqEducation || "Any"); setRadio("contactMethod", c.contactMethod);
+    ["title", "categoryOther", "employerName", "city", "area", "salaryMin", "salaryMax", "startDate", "requirements", "description", "daysOff", "openings"].forEach((k) => setVal(k, j[k]));
+    setVal("address", j.addressHidden ? c.address : j.address); if (f.hideAddress) f.hideAddress.checked = !!j.addressHidden;
+    setVal("contactValue", c.contactValue);
+    f.querySelectorAll("[name=benefits]").forEach((cb) => { cb.checked = (j.benefits || []).includes(cb.value); });
+    f.querySelectorAll("[name=reqList]").forEach((cb) => { cb.checked = (j.reqList || []).includes(cb.value); });
+    const hm = String(j.hours || "").match(/^(\d+) hours a day, (\d+):\d+\s*(AM|PM)/i);
+    if (hm) { f.hLen.value = hm[1]; f.hStart.value = (Number(hm[2]) % 12) + (hm[3].toUpperCase() === "PM" ? 12 : 0); }
+    autoTitle = "";
+  }
+  const draft = editJob ? null : loadDraft("post");
   if (draft) {
     applyDraft(f, draft); touchedBenefits = true; renderOptions(); applyDraft(f, draft);
     f.insertAdjacentHTML("afterbegin", draftNote());
     f.querySelector("[data-draft-clear]").addEventListener("click", () => { clearDraft("post"); viewPost(); });
   }
-  autosave("post", f);
+  if (!editJob) autosave("post", f);
   refresh();
 
   f.addEventListener("submit", async (e) => {
@@ -1705,17 +1734,24 @@ function viewPost() {
       const sure = await showDialog({ title: "Is the pay correct?", body: `${esc(pw.msg)} Applicants will see exactly what you enter, so a typo can attract the wrong people or look like a scam.`, actions: [{ label: "Let me fix it", value: false, primary: true }, { label: "Yes, it's correct", value: true }] });
       if (!sure) { const el = f[pw.field]; el.classList.add("invalid"); el.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => el.focus({ preventScroll: true }), 300); return; }
     }
-    const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Submitting…";
+    const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = editJob ? "Saving…" : "Submitting…";
     try {
       if (!data.address) delete data.address; // older rules don't know this field yet
       if (!data.categoryOther) delete data.categoryOther;
+      if (editJob) {
+        if (workplace() === "business") data.addressHidden = !!contact.address;
+        await store.editJob(editJob.id, data, contact);
+        jobsCache = null;
+        app.innerHTML = `<div class="empty"><h1>Changes saved</h1><p class="muted">Your post is back in review. We'll check the changes soon${editJob.status === "approved" ? " and it will be live again with its original expiry date" : ""}. Your applicants and chats are unchanged.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a></p></div>`;
+        return;
+      }
       await store.createJob(data, contact);
       clearDraft("post");
       jobsCache = null;
       app.innerHTML = `<div class="empty"><h1>Thanks! Your post is under review.</h1><p class="muted">We'll check it soon. Applicants will appear under My posts once it's live.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a> <a class="btn btn-ghost" href="#/post" id="again">Post another</a></p></div>`;
       $("#again").addEventListener("click", (ev) => { ev.preventDefault(); viewPost(); });
     } catch (ex) {
-      console.error(ex); btn.disabled = false; btn.textContent = "Submit for review";
+      console.error(ex); btn.disabled = false; btn.textContent = editJob ? "Save changes" : "Submit for review";
       fail(ex.code === "limit-reached" ? limitMsg.posts : ex.code === "permission-denied"
         ? "The database rejected this post. If you just updated the site, publish the latest database rules in Firebase, then try again."
         : `Could not submit (${ex.code || ex.message || "unknown error"}). Please try again.`);
@@ -1743,7 +1779,7 @@ async function viewMy() {
           <div class="muted small">${esc(j.city)} · posted ${ago(j.createdAt)}${j.expiresAt ? ` · ${isLive(j) ? "expires" : "expired"} ${new Date(j.expiresAt).toLocaleDateString("en-PH")}` : ""}</div>
           ${j.status === "pending" && j.infoNote ? `<div class="info-ask"><strong>We need a bit more before approving this post:</strong> ${esc(j.infoNote)}.<span class="small muted"> Add your Facebook link or permit on your <a href="#/profile">profile</a>, or send the rest to us.</span><a class="btn btn-primary btn-sm" href="#/support" data-reply-info="${esc(j.id)}">Reply to Job Search PH</a></div>` : ""}</div>
         <div><a class="btn btn-ghost btn-sm" href="#/applicants/${encodeURIComponent(j.id)}">${a.length} applicant${a.length === 1 ? "" : "s"}${fresh ? ` <span class="dot">${fresh} new</span>` : ""}</a></div>
-        <div class="actions">${j.status === "approved" || j.status === "pending" ? `<button class="btn btn-ghost btn-sm" data-close="${esc(j.id)}">Mark filled / close</button>` : ""}</div>
+        <div class="actions">${j.status !== "closed" ? `<a class="btn btn-ghost btn-sm" href="#/post/edit/${encodeURIComponent(j.id)}">Edit</a>` : ""}${j.status === "approved" || j.status === "pending" ? `<button class="btn btn-ghost btn-sm" data-close="${esc(j.id)}">Mark filled / close</button>` : ""}</div>
       </div>`; }).join("")}</div>` : `<div class="empty"><p>You haven't posted any jobs yet.</p></div>`;
   };
   $("#mine").addEventListener("click", async (e) => {
@@ -2599,7 +2635,7 @@ async function viewAdmin() {
     };
     body.innerHTML = list.length ? list.map((j) => `
       <div class="admin-item">
-        <div><strong>${esc(j.title)}</strong> ${statusBadge(j)} ${j.featured ? `<span class="badge badge-featured">Featured</span>` : ""}${j.infoNote && j.status === "pending" ? ` <span class="badge badge-app-shortlisted">Waiting for employer</span>` : ""}
+        <div><strong>${esc(j.title)}</strong> ${statusBadge(j)} ${j.featured ? `<span class="badge badge-featured">Featured</span>` : ""}${j.infoNote && j.status === "pending" ? ` <span class="badge badge-app-shortlisted">Waiting for employer</span>` : ""}${j.editedAt && j.status === "pending" ? ` <span class="badge badge-app-shortlisted">Edited ${ago(j.editedAt)}${j.approvedAt ? " · was live" : ""}</span>` : ""}
           <div class="muted small">${esc(j.employerName)} · ${esc(j.city)} · ${esc(j.category)}${j.categoryOther ? ` (${esc(j.categoryOther)})` : ""} · ${esc(j.employmentType)} · ${salaryText(j)} · submitted ${ago(j.createdAt)}</div></div>
         ${adminTab === "pending" ? empPanel(j) : ""}
         <details data-contact="${esc(j.id)}" ${adminTab === "pending" ? "open" : ""}><summary>${adminTab === "pending" ? "Job details" : "View details"}</summary>
@@ -2644,8 +2680,11 @@ async function viewAdmin() {
         toast("Request sent"); return viewAdmin();
       }
       if (act === "approve") {
-        await store.approve(id);
-        if (aj) store.notify(aj.ownerUid, { type: "job_approved", title: "Your job post is live", body: `${aj.title} is now visible to jobseekers for 30 days.`, link: `#/job/${id}`, jobId: id }).catch(() => {});
+        const wasLive = aj && aj.approvedAt && aj.expiresAt && aj.expiresAt > Date.now();
+        await store.approve(id, aj);
+        if (aj) store.notify(aj.ownerUid, wasLive
+          ? { type: "job_approved", title: "Your changes are live", body: `The changes to ${aj.title} are approved and the post is visible again.`, link: `#/job/${id}`, jobId: id }
+          : { type: "job_approved", title: "Your job post is live", body: `${aj.title} is now visible to jobseekers for 30 days.`, link: `#/job/${id}`, jobId: id }).catch(() => {});
       }
       if (act === "reject") {
         await store.updateJob(id, { status: "rejected" });
@@ -2846,7 +2885,7 @@ async function route() {
   if (page === "job" && arg) { let raw = arg; try { raw = decodeURIComponent(arg); } catch {} const id = (raw.match(/^[A-Za-z0-9_-]+/) || [""])[0]; if (id && id !== raw) { history.replaceState(null, "", `${location.pathname}${location.search}#/job/${id}`); } return viewJob(id); }
   if (page === "signin") return viewSignIn();
   if (page === "profile") return viewProfile();
-  if (page === "post") return viewPost();
+  if (page === "post") return viewPost(arg === "edit" && arg2 ? decodeURIComponent(arg2) : null);
   if (page === "my") return viewMy();
   if (page === "applicants" && arg) return viewApplicants(decodeURIComponent(arg));
   if (page === "applications") return viewApplications();

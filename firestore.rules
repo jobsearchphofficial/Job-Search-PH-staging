@@ -93,7 +93,7 @@ service cloud.firestore {
           'salaryMin','salaryMax','salaryPeriod','description','requirements',
           'area','address','addressHidden','workplace','arrangement','schedule','hours','daysOff','daysOffPer','openings','startDate','benefits',
           'reqExperience','reqEducation','reqList',
-          'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt'])
+          'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt','editedAt','infoNote','infoAt'])
         && str(d.title, 3, 100)
         && str(d.category, 1, 40)
         && optStr(d.get('categoryOther', null), 40)
@@ -142,6 +142,19 @@ service cloud.firestore {
                         && resource.data.ownerUid == me()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
                         && request.resource.data.status == 'closed');
+      // Owners may edit their post (not a closed one). It goes back to review, and they can't
+      // touch the status flags, dates, featured or the admin's note.
+      allow update: if signedIn() && notBanned()
+                    && resource.data.ownerUid == me()
+                    && resource.data.status in ['pending', 'approved', 'rejected']
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.editedAt == request.time
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                         'title','category','categoryOther','employerName','city','area','address','addressHidden','workplace',
+                         'arrangement','schedule','employmentType','salaryMin','salaryMax','salaryPeriod','hours','daysOff','daysOffPer',
+                         'openings','startDate','benefits','reqExperience','reqEducation','reqList','requirements','description',
+                         'status','updatedAt','editedAt'])
+                    && validJob(request.resource.data);
       allow delete: if isAdmin();
 
       // Employer contact details: visible to the owner, admins, and the worker they hired.
