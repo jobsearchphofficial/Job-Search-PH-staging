@@ -24,8 +24,9 @@ const LIVE_CONFIG = {
 
 export const firebaseConfig = IS_STAGING ? STAGING_CONFIG : LIVE_CONFIG;
 
-// SMS helper (Cloudflare Worker in sms-helper/). Empty = phone confirmation is switched off and hidden.
-export const SMS_URL = "";
+// Helper (Cloudflare Worker in helper/): texts phone codes and sends the branded account emails.
+// Empty = phone confirmation is hidden, and account emails fall back to Firebase's own plain emails.
+export const HELPER_URL = "";
 
 // How long an approved post stays live.
 export const LISTING_DAYS = 30;

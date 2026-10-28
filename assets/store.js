@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, SMS_URL } from "./firebase-config.js?v=1793200579";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL } from "./firebase-config.js?v=1793207653";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -15,8 +15,20 @@ const emit = () => listeners.forEach((cb) => cb({ ...state }));
 export const onAuth = (cb) => { listeners.add(cb); if (state.ready) cb({ ...state }); return () => listeners.delete(cb); };
 export const getAuthState = () => ({ ...state });
 export const uploadsEnabled = RESUME_UPLOADS;
-const SMS = USE_EMULATORS ? "http://127.0.0.1:8787" : SMS_URL;
-export const smsEnabled = !!SMS;
+const HELPER = USE_EMULATORS ? "http://127.0.0.1:8787" : HELPER_URL;
+export const smsEnabled = !!HELPER;
+// A real name: at least two words with letters (first and last name).
+export const isFullName = (n) => String(n || "").trim().split(/\s+/).filter((w) => /\p{L}{2,}/u.test(w)).length >= 2;
+async function callHelper(path, body = {}, signedIn = true) {
+  const headers = { "content-type": "application/json" };
+  if (signedIn) headers.authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+  let res;
+  try { res = await fetch(`${HELPER}/${path}`, { method: "POST", headers, body: JSON.stringify(body) }); }
+  catch { throw Object.assign(new Error("We couldn't connect. Check your internet and try again."), { code: "network" }); }
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(out.message || (out.error === "wait" ? `Wait ${out.wait}s before asking again.` : "Something went wrong. Try again.")), { code: out.error || "error", wait: out.wait, status: res.status });
+  return out;
+}
 // Same rule as the SMS helper: 09XXXXXXXXX / 639XXXXXXXXX / +639XXXXXXXXX → +639XXXXXXXXX
 export const normPhone = (v) => { const m = String(v || "").replace(/\D/g, "").match(/^(?:0|63)?(9\d{9})$/); return m ? `+63${m[1]}` : null; };
 
@@ -155,7 +167,7 @@ export const store = {
   async signUpEmail(email, pw, name) {
     const cred = await A.createUserWithEmailAndPassword(auth, email, pw);
     if (name) await A.updateProfile(cred.user, { displayName: name }).catch(() => {});
-    A.sendEmailVerification(cred.user, { url: `${location.origin}/#/profile` }).catch(() => {});
+    this.sendVerification().catch(() => {});
   },
   // Email confirmation for email + password accounts.
   // Mobile number confirmation (text message code). phoneVerified/{uid} is written only by the SMS helper.
@@ -166,16 +178,14 @@ export const store = {
   },
   async phoneStatusFor(id) { const d = await F.getDoc(F.doc(db, "phoneVerified", id)).catch(() => null); return d?.exists() ? norm(d) : null; },
   async sms(path, body = {}) {
-    if (!SMS) throw Object.assign(new Error("off"), { code: "off" });
-    const token = await auth.currentUser.getIdToken();
-    let res;
-    try { res = await fetch(`${SMS}/${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }); }
-    catch { throw Object.assign(new Error("We couldn't reach the texting service. Check your internet and try again."), { code: "network" }); }
-    const out = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(out.message || (out.error === "wait" ? `Wait ${out.wait}s before asking again.` : "Something went wrong. Try again.")), { code: out.error || "error", wait: out.wait, status: res.status });
-    return out;
+    if (!HELPER) throw Object.assign(new Error("off"), { code: "off" });
+    return callHelper(path, body);
   },
-  async sendVerification() { await A.sendEmailVerification(auth.currentUser, { url: `${location.origin}/#/profile` }); },
+  // Branded "confirm your email" email from noreply@jobsearchph.com (helper); Firebase's plain one if the helper is off or down.
+  async sendVerification() {
+    if (HELPER) { try { return await callHelper("email/verify"); } catch (e) { if (e.code === "wait" || e.code === "limit") throw e; console.warn("helper email failed, using Firebase", e); } }
+    await A.sendEmailVerification(auth.currentUser, { url: `${location.origin}/#/profile` });
+  },
   // After they click the link: refresh the account (and its token, which the database rules read).
   async refreshVerified() {
     const u = auth.currentUser; if (!u) return false;
@@ -186,7 +196,18 @@ export const store = {
     else emit();
     return !must;
   },
-  async resetPassword(email) { await A.sendPasswordResetEmail(auth, email); },
+  async resetPassword(email) {
+    if (HELPER) { try { return await callHelper("email/reset", { email, project: USE_EMULATORS ? "demo-jsph" : firebaseConfig.projectId }, false); } catch (e) { if (e.code === "wait") throw e; console.warn("helper email failed, using Firebase", e); } }
+    await A.sendPasswordResetEmail(auth, email);
+  },
+  // Links in account emails open jobsearchph.com/?mode=…&oobCode=… and are finished here.
+  async applyEmailCode(code) {
+    await A.applyActionCode(auth, code);
+    if (auth.currentUser) return this.refreshVerified();
+    return true;
+  },
+  async checkResetCode(code) { return A.verifyPasswordResetCode(auth, code); }, // → the account's email
+  async confirmReset(code, pw) { await A.confirmPasswordReset(auth, code, pw); },
   async signOut() { await A.signOut(auth); },
 
   /* ---- Profile ---- */

@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone } from "./store.js?v=1793200579";
-import { IS_STAGING } from "./firebase-config.js?v=1793200579";
-import { fitScore, rankApplicants } from "./match.js?v=1793200579";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793200579";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793207653";
+import { IS_STAGING } from "./firebase-config.js?v=1793207653";
+import { fitScore, rankApplicants } from "./match.js?v=1793207653";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793207653";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1128,7 +1128,7 @@ function viewSignIn() {
           </button>
           <div class="divider"><span>or use email</span></div>
           <form id="email-form" class="auth-form" novalidate>
-            ${mode === "signup" ? `<label for="s-name">Full name</label><input id="s-name" name="name" autocomplete="name" required maxlength="80">` : ""}
+            ${mode === "signup" ? `<label for="s-name">Full name (first and last)</label><input id="s-name" name="name" autocomplete="name" required maxlength="80" placeholder="e.g. Maria Santos">` : ""}
             <label for="s-email">Email</label><input id="s-email" name="email" type="email" autocomplete="email" required>
             <label for="s-pw">Password</label><input id="s-pw" name="pw" type="password" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" required minlength="6">
             ${mode === "signup" ? `<p class="hint">At least 6 characters.</p>` : `<button type="button" class="linkbtn" id="forgot">Forgot password?</button>`}
@@ -1146,13 +1146,13 @@ function viewSignIn() {
     $("#forgot")?.addEventListener("click", async () => {
       const email = $("#s-email").value.trim();
       if (!email) return err("Type your email above first, then tap Forgot password.");
-      try { await store.resetPassword(email); err(""); toast("Password reset link sent. Check your email."); } catch (e) { err(authError(e)); }
+      try { await store.resetPassword(email); err(""); toast("If there's an account with that email, we sent a reset link. Check your inbox and Spam."); } catch (e) { err(authError(e)); }
     });
     $("#email-form").addEventListener("submit", async (e) => {
       e.preventDefault(); err("");
       const f = e.target; const btn = f.querySelector("button[type=submit]");
       const email = f.email.value.trim(), pw = f.pw.value;
-      if (mode === "signup" && f.name.value.trim().length < 2) return err("Enter your full name.");
+      if (mode === "signup" && !isFullName(f.name.value)) return err("Enter your first and last name, e.g. Maria Santos.");
       if (!email) return err("Enter your email.");
       if (pw.length < 6) return err("Use a password with at least 6 characters.");
       btn.disabled = true;
@@ -1187,7 +1187,7 @@ function viewProfile(focus) {
     <form id="profile-form" class="form" novalidate>
       <fieldset>
         <legend>About you</legend>
-        <label>Full name *<input name="fullName" required minlength="2" maxlength="80" autocomplete="name" value="${esc(p.fullName)}"></label>
+        <label>Full name (first and last) *<input name="fullName" required minlength="5" maxlength="80" autocomplete="name" placeholder="e.g. Maria Santos" value="${esc(p.fullName)}"></label>
         <div class="row">
           <label>Mobile number *<input name="phone" required inputmode="tel" autocomplete="tel" placeholder="0917 123 4567" value="${esc(p.phone)}"></label>
           <label>City / municipality *<select name="city" required><option value="">Choose…</option>${opts(CITIES, p.city)}</select></label>
@@ -1321,7 +1321,7 @@ function viewProfile(focus) {
       errEl.hidden = true;
       collect();
       const fullName = (p.fullName || "").trim(), phone = (p.phone || "").trim();
-      if (fullName.length < 2) return fail("Enter your full name.", f.fullName);
+      if (!isFullName(fullName)) return fail("Enter your first and last name, e.g. Maria Santos.", f.fullName);
       const ph = digits(phone).replace(/^\+/, "");
       if (ph.length < 10 || ph.length > 13) return fail("Enter a complete mobile number, e.g. 0917 123 4567.", f.phone);
       if (!p.city) return fail("Choose your city or municipality.", f.city);
@@ -1429,6 +1429,7 @@ function viewProfile(focus) {
     const step = !role ? 1 : 2;
     app.innerHTML = `
       <div class="profile-wrap">
+        ${!isNew && !isFullName(profile?.fullName) ? `<div class="notice name-needed" id="name-needed"><strong>Please add your full name.</strong> Employers and jobseekers need your first and last name to trust your profile. Type it below, then tap Save changes.</div>` : ""}
         ${getAuthState().mustConfirmEmail ? confirmEmailBox(role === "employer" ? "You'll need this before you can post a job." : "It keeps your account safe and lets us send job alerts.") : ""}
         <header class="profile-head">
           <div class="photo-col"><label class="photo-pick" title="Change photo">${avatar(name || user.email, p.photo, "lg")}<span class="photo-edit">${p.photo ? "Change" : "Add photo"}</span><input type="file" id="photo-in" accept="image/*" hidden></label>${p.photo ? `<button type="button" class="linkbtn small" id="photo-remove">Remove</button>` : ""}</div>
@@ -1473,6 +1474,9 @@ function viewProfile(focus) {
     bindConfirmEmail(() => viewProfile());
     if (role && !isNew) paintVerify();
     if (role && !isNew && smsEnabled) paintPhone();
+    if (!isNew && !isFullName(p.fullName) && !profileFocus) {
+      setTimeout(() => { const i = $("[name=fullName]"); if (!i) return; i.scrollIntoView({ behavior: "smooth", block: "center" }); i.focus({ preventScroll: true }); i.closest("label")?.classList.add("flash"); }, 200);
+    }
     if (profileFocus === "emails" && $("#pf-emails")) {
       profileFocus = "";
       history.replaceState(null, "", `${location.pathname}${location.search}#/profile`);
@@ -2543,6 +2547,89 @@ let supportView = "open";
 let anRange = 30;
 const adminJobs = {};
 /* ---------------- Suspended accounts ---------------- */
+/* ---------------- Confirm your email (full page, before using the site) ---------------- */
+let confirmWatch = null;
+function viewConfirmEmail() {
+  document.title = "Confirm your email | Job Search PH";
+  const { user } = getAuthState();
+  app.innerHTML = `<div class="ce-wrap"><div class="ce-card">
+    <div class="ce-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg></div>
+    <p class="kicker">One last step</p>
+    <h1>Confirm your email</h1>
+    <p class="muted">We sent a link to <strong>${esc(user?.email || "your email")}</strong>. Open it and tap <strong>Confirm my email</strong>, then come back here. This keeps fake accounts off Job Search PH.</p>
+    <div class="ce-actions"><button class="btn btn-primary" type="button" data-ce="check">I've confirmed it</button><button class="btn btn-ghost" type="button" data-ce="resend">Send the link again</button></div>
+    <p class="error" id="ce-msg" hidden></p>
+    <ul class="ce-tips small muted"><li>It comes from <strong>noreply@jobsearchph.com</strong>. Check <strong>Spam</strong> and <strong>Promotions</strong> too.</li><li>Wrong email? <button type="button" class="linkbtn" data-ce="out">Sign out</button> and create your account again.</li></ul>
+  </div></div>`;
+  const msg = (t, ok) => { const m = $("#ce-msg"); m.textContent = t; m.hidden = !t; m.classList.toggle("ok", !!ok); };
+  const done = () => { if (confirmWatch) { document.removeEventListener("visibilitychange", confirmWatch); confirmWatch = null; } toast("Email confirmed. Welcome!"); const to = returnTo; returnTo = ""; if (to && to !== location.hash) location.hash = to; else route(); };
+  app.querySelector(".ce-card").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-ce]"); if (!b) return;
+    if (b.dataset.ce === "out") { await store.signOut(); location.hash = "#/"; return; }
+    b.disabled = true;
+    try {
+      if (b.dataset.ce === "resend") { await store.sendVerification(); msg("Sent. Check your inbox (and Spam).", true); }
+      else if (await store.refreshVerified()) return done();
+      else msg("Not confirmed yet. Open the link in the email first, then tap this again.");
+    } catch (ex) { msg(ex.message && ex.code !== "auth/too-many-requests" ? ex.message : "Please wait a minute before asking for another email."); }
+    b.disabled = false;
+  });
+  // Coming back from the email app: check by itself.
+  if (confirmWatch) document.removeEventListener("visibilitychange", confirmWatch);
+  confirmWatch = async () => { if (document.visibilityState === "visible" && $(".ce-card") && (await store.refreshVerified().catch(() => false))) done(); };
+  document.addEventListener("visibilitychange", confirmWatch);
+}
+
+/* ---------------- Links from account emails: ?mode=verifyEmail|resetPassword&oobCode=… ---------------- */
+let authAction = (() => { const q = new URLSearchParams(location.search); const mode = q.get("mode"), code = q.get("oobCode"); return mode && code ? { mode, code } : null; })();
+async function viewAuthAction() {
+  const { mode, code } = authAction; authAction = null;
+  history.replaceState(null, "", `${location.pathname}${location.hash || "#/"}`); // drop the one-time code from the address bar
+  const card = (inner) => { app.innerHTML = `<div class="ce-wrap"><div class="ce-card">${inner}</div></div>`; };
+  const okIco = `<div class="ce-ico ok" aria-hidden="true">✓</div>`;
+  if (mode === "verifyEmail") {
+    document.title = "Confirming your email | Job Search PH";
+    card(`<p class="muted">Confirming your email…</p>`);
+    try { await store.applyEmailCode(code); }
+    catch (e) {
+      if (getAuthState().user && !getAuthState().mustConfirmEmail) { /* already confirmed (link opened twice) */ }
+      else {
+        card(`<h1>This link didn't work</h1><p class="muted">It may have expired or already been used. ${getAuthState().user ? "Send yourself a new one:" : "Sign in and we'll send you a new one."}</p>
+          <div class="ce-actions">${getAuthState().user ? `<button class="btn btn-primary" id="ce-new">Send a new link</button>` : `<a class="btn btn-primary" href="#/signin">Sign in</a>`}</div><p class="error" id="ce-msg" hidden></p>`);
+        $("#ce-new")?.addEventListener("click", async (ev) => { ev.target.disabled = true; try { await store.sendVerification(); toast("Sent. Check your inbox."); location.hash = "#/"; route(); } catch (ex) { const m = $("#ce-msg"); m.textContent = ex.message; m.hidden = false; ev.target.disabled = false; } });
+        return;
+      }
+    }
+    const signedIn = !!getAuthState().user;
+    if (signedIn) toast("Email confirmed. Welcome!");
+    card(`${okIco}<h1>Your email is confirmed</h1><p class="muted">${signedIn ? "You're all set." : "Sign in to continue. If you were waiting on another phone or tab, it will continue there too."}</p>
+      <div class="ce-actions">${signedIn ? `<a class="btn btn-primary" href="${getAuthState().profile ? "#/" : "#/profile"}">Continue</a>` : `<a class="btn btn-primary" href="#/signin">Sign in</a>`}</div>`);
+    return;
+  }
+  if (mode === "resetPassword") {
+    document.title = "Choose a new password | Job Search PH";
+    let email = "";
+    try { email = await store.checkResetCode(code); }
+    catch { card(`<h1>This link didn't work</h1><p class="muted">Password links work for 1 hour and only once. Ask for a new one from the sign-in page (tap <strong>Forgot password?</strong>).</p><div class="ce-actions"><a class="btn btn-primary" href="#/signin">Go to sign in</a></div>`); return; }
+    card(`<h1>Choose a new password</h1><p class="muted">For <strong>${esc(email)}</strong></p>
+      <form id="rp-form" class="auth-form" novalidate><label for="rp1">New password</label><input id="rp1" type="password" autocomplete="new-password" minlength="6" required>
+      <label for="rp2">Type it again</label><input id="rp2" type="password" autocomplete="new-password" minlength="6" required><p class="hint">At least 6 characters.</p>
+      <p class="error" id="ce-msg" hidden></p><button class="btn btn-primary btn-block" type="submit">Save new password</button></form>`);
+    $("#rp-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const m = $("#ce-msg"), a = $("#rp1").value, b = $("#rp2").value, btn = e.target.querySelector("button");
+      const fail = (t) => { m.textContent = t; m.hidden = false; };
+      if (a.length < 6) return fail("Use at least 6 characters.");
+      if (a !== b) return fail("The two passwords don't match.");
+      btn.disabled = true;
+      try { await store.confirmReset(code, a); await store.signInEmail(email, a).catch(() => {}); toast("Password changed. You're signed in."); location.hash = "#/"; route(); }
+      catch (ex) { btn.disabled = false; fail(ex.code === "auth/weak-password" ? "Choose a stronger password." : "That didn't work. The link may have expired. Ask for a new one."); }
+    });
+    return;
+  }
+  location.hash = "#/"; route();
+}
+
 function viewSuspended(ban) {
   document.title = "Account suspended | Job Search PH";
   app.innerHTML = `<div class="empty suspended">
@@ -3276,8 +3363,19 @@ async function route() {
   const [, page, arg, arg2] = (location.hash || "#/").split("/");
   window.scrollTo(0, 0);
   const { user, profile, banned, isAdmin } = getAuthState();
+  if (authAction) return viewAuthAction();
   if (page === "unsubscribe") return viewUnsubscribe(arg || "");
   if (user && banned && !isAdmin && !["support", "safety", "terms", "privacy"].includes(page || "")) return viewSuspended(banned);
+  // Email + password accounts confirm their email before using the site (Google/Facebook are already confirmed).
+  if (user && getAuthState().mustConfirmEmail && !isAdmin && !["safety", "terms", "privacy", "support"].includes(page || "")) {
+    if (page && page !== "signin" && !returnTo) returnTo = location.hash;
+    return viewConfirmEmail();
+  }
+  // Everyone needs a first and last name. Older one-word profiles are sent to fix it.
+  if (user && profile && !isAdmin && !isFullName(profile.fullName) && !["profile", "safety", "terms", "privacy", "support"].includes(page || "")) {
+    if (!returnTo && page) returnTo = location.hash;
+    location.hash = "#/profile"; return;
+  }
   // New accounts finish their profile first; browsing jobs and reading info pages still work.
   if (user && !profile && !["", "job", "profile", "signin", "safety", "terms", "privacy", "support"].includes(page || "")) {
     if (!returnTo) returnTo = location.hash;

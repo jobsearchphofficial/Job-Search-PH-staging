@@ -41,6 +41,8 @@ service cloud.firestore {
     function validPhoto(p) { return p == null || p == '' || (p is string && p.size() <= 60000 && p.matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')); }
 
     /* ---------- Profiles ---------- */
+    // First and last name: at least two words of 2+ characters.
+    function fullName(n) { return n.matches('[ ]*[^ ]{2,}( +[^ ]+)* +[^ ]{2,}[ ]*'); }
     function validProfile(d) {
       return d.keys().hasOnly([
           'role','fullName','phone','city','messenger','consent','createdAt','updatedAt',
@@ -84,7 +86,10 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if (signedIn() && me() == uid) || isAdmin();
-      allow create, update: if signedIn() && me() == uid && notBanned() && validProfile(request.resource.data);
+      // A new or changed name must be a full name (two words). Older one-word names can stay until edited.
+      allow create: if signedIn() && me() == uid && notBanned() && validProfile(request.resource.data) && fullName(request.resource.data.fullName);
+      allow update: if signedIn() && me() == uid && notBanned() && validProfile(request.resource.data)
+                    && (request.resource.data.fullName == resource.data.fullName || fullName(request.resource.data.fullName));
       allow delete: if (signedIn() && me() == uid) || isAdmin();
     }
 

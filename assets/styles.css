@@ -1143,3 +1143,16 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .pc-form input { width: 11ch; font-size: 1.25rem; letter-spacing: .25em; text-align: center; font-variant-numeric: tabular-nums; }
 .pc-again { margin: 0; }
 .phone-card .error { margin: 0; }
+
+/* Confirm your email (full page) and links from account emails */
+.ce-wrap { display: grid; place-items: start center; padding: 28px 0 40px; }
+.ce-card { width: 100%; max-width: 480px; box-sizing: border-box; background: var(--card); border: 1px solid var(--soft-line); border-radius: var(--radius); padding: 28px 24px; box-shadow: var(--shadow-sm); text-align: center; }
+.ce-card h1 { margin: 4px 0 8px; font-size: 1.6rem; }
+.ce-card .kicker { margin: 8px 0 0; }
+.ce-ico { width: 64px; height: 64px; margin: 0 auto 6px; border-radius: 50%; display: grid; place-items: center; background: var(--indigo-soft); color: var(--indigo); }
+.ce-ico.ok { background: var(--green, #15803d); color: #fff; font-size: 30px; font-weight: 700; }
+.ce-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 18px 0 6px; }
+.ce-tips { text-align: left; margin: 18px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.ce-card .error.ok { color: var(--green, #15803d); }
+.ce-card .auth-form { text-align: left; margin-top: 14px; }
+.name-needed { margin-bottom: 16px; max-width: 779px; box-sizing: border-box; }
