@@ -1084,3 +1084,5 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .vr-pics figure { margin: 0; }
 .vr-pics img { width: 100%; max-height: 300px; object-fit: contain; background: var(--bg); border-radius: var(--radius-sm); cursor: zoom-in; }
 .vr-pics figcaption { font-size: .78rem; color: var(--slate); margin-top: 4px; }
+.verify-card > .btn { justify-self: start; }
+.profile-wrap > .verify-card { max-width: 779px; box-sizing: border-box; }

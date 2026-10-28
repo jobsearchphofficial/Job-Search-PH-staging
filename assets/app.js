@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793189990";
-import { IS_STAGING } from "./firebase-config.js?v=1793189990";
-import { fitScore, rankApplicants } from "./match.js?v=1793189990";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793189990";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793194736";
+import { IS_STAGING } from "./firebase-config.js?v=1793194736";
+import { fitScore, rankApplicants } from "./match.js?v=1793194736";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793194736";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -446,6 +446,7 @@ function messengerUrl(v) {
       const u = new URL(v);
       if (!/(^|\.)(m\.me|facebook\.com|messenger\.com)$/i.test(u.hostname)) return null;
       user = u.pathname.replace(/^\/+|\/+$/g, "").replace(/^t\//, "");
+      if (/^profile\.php$/i.test(user)) user = u.searchParams.get("id") || "";
     }
   } catch { return null; }
   user = user.replace(/[^A-Za-z0-9.\-_]/g, "");
@@ -1179,14 +1180,14 @@ function viewProfile() {
         <div class="row">
           ${role === "jobseeker" ? `<label>Birthdate *<span class="date-age"><input name="birthDate" type="date" required max="${maxBirth}" value="${esc(p.birthDate)}"><output id="age-out" class="age-pill">${ageFrom(p.birthDate) != null ? `${ageFrom(p.birthDate)} years old` : "Age"}</output></span><span class="hint">You must be at least 18. Employers see your age, not your birthdate.</span></label>`
             : `<label>Household or business name<input name="companyName" maxlength="100" placeholder="e.g. Reyes Family or Inasal Express" value="${esc(p.companyName)}"></label>`}
-          <label>Messenger (optional)<input name="messenger" maxlength="100" placeholder="Username or m.me link" value="${esc(p.messenger)}"></label>
+          ${role === "jobseeker" ? `<label>Messenger (optional)<input name="messenger" maxlength="100" placeholder="Username or m.me link" value="${esc(p.messenger)}"></label>` : ""}
         </div>
         ${role === "jobseeker" ? `<div><span class="label">Gender</span><div class="pills tight" role="radiogroup">${["Male", "Female", "Other"].map((g) => `<label class="pill"><input type="radio" name="gender" value="${g}" ${p.gender === g ? "checked" : ""}><span>${g}</span></label>`).join("")}</div></div>` : ""}
       </fieldset>
       ${role === "employer" ? `
       <fieldset>
         <legend>Help us confirm you're real</legend>
-        <p class="hint vf-hint">${SHIELD}Only admins see these. Employers who add them get approved faster and can earn a <strong>Verified</strong> badge, which jobseekers trust more.</p>
+        <p class="hint vf-hint">${SHIELD}<span>Only admins see these. Employers who add them get approved faster and can earn a <strong>Verified</strong> badge, which jobseekers trust more.</span></p>
         <label>Facebook profile or page link<input name="fbUrl" type="url" inputmode="url" maxlength="200" placeholder="https://facebook.com/yourname" value="${esc(p.fbUrl || "")}"></label>
         <label>Business permit or DTI number (businesses only, optional)<input name="bizReg" maxlength="60" placeholder="e.g. DTI 1234567" value="${esc(p.bizReg || "")}"></label>
       </fieldset>
@@ -1440,7 +1441,6 @@ function viewProfile() {
     app.innerHTML = `
       <div class="profile-wrap">
         ${getAuthState().mustConfirmEmail ? confirmEmailBox(role === "employer" ? "You'll need this before you can post a job." : "It keeps your account safe and lets us send job alerts.") : ""}
-        ${role === "employer" && !isNew ? `<section class="verify-card" id="verify-card"></section>` : ""}
         <header class="profile-head">
           <div class="photo-col"><label class="photo-pick" title="Change photo">${avatar(name || user.email, p.photo, "lg")}<span class="photo-edit">${p.photo ? "Change" : "Add photo"}</span><input type="file" id="photo-in" accept="image/*" hidden></label>${p.photo ? `<button type="button" class="linkbtn small" id="photo-remove">Remove</button>` : ""}</div>
           <div>
@@ -1449,6 +1449,7 @@ function viewProfile() {
             <p class="muted">${isNew ? (role ? "Fill in your details. Fields marked * are required." : "How will you use Job Search PH? You can change this later.") : `Signed in as ${esc(user.email || user.displayName || "")}`}</p>
           </div>
         </header>
+        ${role === "employer" && !isNew ? `<section class="verify-card" id="verify-card"></section>` : ""}
         ${isNew && !guided ? `<ol class="steps" aria-label="Progress"><li class="${step >= 1 ? "done" : ""} ${step === 1 ? "current" : ""}">Choose type</li><li class="${step === 2 ? "current" : ""}">Your details</li></ol>` : ""}
         ${guided ? `<div class="role-switch"><span class="role-now">${ICONS[role]}<span>${role === "employer" ? "Employer profile: post jobs and review applicants" : "Jobseeker profile: apply to jobs with one profile"}</span></span>
             <button type="button" class="linkbtn" data-role="${role === "employer" ? "jobseeker" : "employer"}">${role === "employer" ? "Looking for work instead?" : "Hiring instead?"}</button></div>`
@@ -1772,7 +1773,7 @@ async function viewPost(editId = null) {
     }
     if (e.target.name === "cMethod") {
       const m = e.target.value, inp = e.target.closest(".crow").querySelector("[name=cValue]");
-      inp.value = m === "phone" ? profile.phone || "" : m === "messenger" ? (profile.messenger || "") : (user.email || "");
+      inp.value = m === "phone" ? profile.phone || "" : m === "messenger" ? empMessenger : (user.email || "");
     }
     refresh();
   });
@@ -1796,11 +1797,12 @@ async function viewPost(editId = null) {
     return list.filter((b) => !t || b.toLowerCase().startsWith(t) || b.toLowerCase().split(/[\s.-]+/).some((w) => w.startsWith(t)))
       .map((b) => ({ value: b, html: hl(b, t), meta: "Barangay" }));
   }, () => refresh(), true);
-  // Contact rows: default to the employer's Messenger, phone and email from their profile.
+  // Contact rows: default to the employer's Messenger (from their Facebook link), phone and email.
+  const empMessenger = profile.messenger || messengerUrl(profile.fbUrl) || "";
   const contactRow = (m = "phone", v = "") => `<div class="crow"><select name="cMethod" aria-label="Contact type">${[["messenger", "Messenger"], ["phone", "Phone / SMS"], ["email", "Email"]].map(([k, l]) => `<option value="${k}" ${k === m ? "selected" : ""}>${l}</option>`).join("")}</select>
     <input name="cValue" maxlength="200" value="${esc(v)}" aria-label="Contact"><button type="button" class="crow-x" aria-label="Remove this contact">×</button></div>`;
   const setContacts = (list) => { $("#contact-rows").innerHTML = list.map((c) => contactRow(c.contactMethod, c.contactValue)).join(""); };
-  setContacts([profile.messenger && { contactMethod: "messenger", contactValue: profile.messenger }, profile.phone && { contactMethod: "phone", contactValue: profile.phone }, user.email && { contactMethod: "email", contactValue: user.email }].filter(Boolean));
+  setContacts([empMessenger && { contactMethod: "messenger", contactValue: empMessenger }, profile.phone && { contactMethod: "phone", contactValue: profile.phone }, user.email && { contactMethod: "email", contactValue: user.email }].filter(Boolean));
   $("#add-contact").addEventListener("click", () => { if (f.querySelectorAll(".crow").length >= 4) return toast("Up to 4 contacts"); $("#contact-rows").insertAdjacentHTML("beforeend", contactRow("phone", "")); refresh(); $("#contact-rows .crow:last-child input").focus(); });
   $("#contact-rows").addEventListener("click", (e) => { const x = e.target.closest(".crow-x"); if (!x) return; x.closest(".crow").remove(); refresh(); });
   renderOptions();
