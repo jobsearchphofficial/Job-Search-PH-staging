@@ -31,7 +31,7 @@ const safetySrc = await readFile(join(ROOT, "assets/safety.js"), "utf8");
 const { scamFlags, SERIOUS } = await import(`data:text/javascript;base64,${Buffer.from(safetySrc).toString("base64")}`);
 
 const first = (n) => String(n || "").trim().split(/\s+/)[0] || "there";
-const settingsNote = `You're getting this because you posted a job on Job Search PH. <a href="${link("#/profile")}" style="color:#777777;">Turn off these emails</a> in My profile.`;
+const settingsNote = `You're getting this because you posted a job on Job Search PH. <a href="${link("#/profile/emails")}" style="color:#777777;">Turn off these emails</a> in My profile.`;
 const fitColor = (s) => (s >= 80 ? "#15803d" : s >= 60 ? "#3d4fd6" : s >= 40 ? "#b45309" : "#6b7280");
 
 let sent = 0, capped = false;
@@ -52,11 +52,15 @@ async function deliver(key, to, { subject, html, text }) {
   return true;
 }
 
+// IDs an admin has checked (employers and jobseekers). Loaded once per run.
+let VERIFIED_IDS = null;
+const verifiedIds = async () => (VERIFIED_IDS ||= new Set((await query("verified").catch(() => [])).map((v) => v.id)));
+
 function applicantBlock(a, { highlight = false } = {}) {
   const x = a.applicant || {}, f = a.fit;
   const reasons = [...f.good.slice(0, 3).map((g) => `✓ ${esc(g)}`), ...f.gaps.slice(0, 2).map((g) => `– ${esc(g)}`)].join("<br>");
   return card(`
-    <div style="font-size:16px;font-weight:bold;color:#111111;">${esc(x.fullName || "Applicant")}${x.age ? `, ${esc(x.age)}` : ""}</div>
+    <div style="font-size:16px;font-weight:bold;color:#111111;">${esc(x.fullName || "Applicant")}${x.age ? `, ${esc(x.age)}` : ""}${VERIFIED_IDS?.has(a.applicantUid) ? ` <span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#15803d;font-size:12px;font-weight:bold;vertical-align:middle;">✓ Verified</span>` : ""}</div>
     <div style="font-size:13px;color:#666666;margin-bottom:6px;">${esc(x.city || "")}${x.experienceYears != null && x.experienceYears !== "" ? ` · ${esc(x.experienceYears)} yrs experience` : ""}${x.availability ? ` · ${esc(x.availability)}` : ""}</div>
     <div style="font-size:14px;margin-bottom:6px;"><strong style="color:${fitColor(f.score)};font-size:18px;">${f.score}/100</strong> <span style="color:#333;">${esc(f.label)}</span></div>
     <div style="font-size:13px;line-height:20px;color:#555555;">${reasons}</div>`,
@@ -69,7 +73,7 @@ async function newApplicants(since) {
   for (const app of fresh) {
     const key = `app_${app.id}`;
     if (await seen(key)) continue;
-    const [job, emp] = await Promise.all([getJob(app.jobId), getUser(app.employerUid)]);
+    const [job, emp] = await Promise.all([getJob(app.jobId), getUser(app.employerUid), verifiedIds()]);
     if (!job || !emp?.email || emp.emailNotify === false) { await mark(key, "skipped"); continue; }
     const ranked = rankApplicants(job, await appsFor(app.jobId)).filter((a) => a.createdAt <= app.createdAt || a.id === app.id);
     const me = ranked.find((a) => a.id === app.id) || { ...app, fit: rankApplicants(job, [app])[0].fit };
@@ -154,13 +158,14 @@ async function verifyUpdates(since) {
     const emp = await getUser(r.id);
     if (!emp?.email) { await mark(key, "skipped"); continue; }
     const ok = r.status === "approved";
+    const seeker = emp.role === "jobseeker";
     if (r.status === "expired") r.reason = "we didn't get to it within 14 days, so we deleted your photos to keep them safe";
     const body = ok
-      ? `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, we checked your ID and you're now a <strong>Verified employer</strong>. The green Verified badge shows on all your job posts, so jobseekers know you're real.</p>
-         <p style="margin:0;font-size:13px;color:#666666;">As promised, we deleted your ID photo and selfie. We only keep that you were verified and the type of ID.</p>${button(link("#/my", "email-verify"), "See my posts")}`
+      ? `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, we checked your ID and you're now a <strong>Verified ${seeker ? "jobseeker" : "employer"}</strong>. ${seeker ? "Employers see the green Verified badge when you apply, so they know you're real." : "The green Verified badge shows on all your job posts, so jobseekers know you're real."}</p>
+         <p style="margin:0;font-size:13px;color:#666666;">As promised, we deleted your ID photo and selfie. We only keep that you were verified and the type of ID.</p>${seeker ? button(link("#/", "email-verify"), "Find jobs") : button(link("#/my", "email-verify"), "See my posts")}`
       : `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, we couldn't verify your ID this time${r.reason ? `: <strong>${esc(r.reason)}</strong>` : "."}</p>
-         <p style="margin:0;font-size:13px;color:#666666;">We deleted the photos you sent. You can send new ones from your profile, and your posts can still go live after our usual review.</p>${button(link("#/verify", "email-verify"), "Try again")}`;
-    await deliver(key, emp.email, { subject: ok ? "You're a Verified employer on Job Search PH" : "We couldn't verify your ID yet", html: layout({ title: ok ? "You're verified" : "We couldn't verify your ID yet", preheader: ok ? "The Verified badge is on your posts now." : "You can send new photos.", body, safety: false }), text: `${ok ? "You're verified." : "We couldn't verify your ID yet."} ${link(ok ? "#/my" : "#/verify", "email-verify")}` });
+         <p style="margin:0;font-size:13px;color:#666666;">We deleted the photos you sent. You can send new ones from your profile${seeker ? ", and you can still apply to jobs in the meantime" : ", and your posts can still go live after our usual review"}.</p>${button(link("#/verify", "email-verify"), "Try again")}`;
+    await deliver(key, emp.email, { subject: ok ? `You're a Verified ${seeker ? "jobseeker" : "employer"} on Job Search PH` : "We couldn't verify your ID yet", html: layout({ title: ok ? "You're verified" : "We couldn't verify your ID yet", preheader: ok ? (seeker ? "Employers will see the Verified badge when you apply." : "The Verified badge is on your posts now.") : "You can send new photos.", body, safety: false }), text: `${ok ? "You're verified." : "We couldn't verify your ID yet."} ${link(ok ? (seeker ? "#/" : "#/my") : "#/verify", "email-verify")}` });
     if (capped) break;
   }
   return pending;

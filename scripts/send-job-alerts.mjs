@@ -63,7 +63,7 @@ export function buildEmail(user, matches) {
     ? `New job: ${matches[0].title} in ${matches[0].city}`
     : `${matches.length} new jobs for you in ${where}`;
   const unsub = `${SITE}/#/unsubscribe/${user.alertsToken}`;
-  const manage = `${SITE}/?src=job-alert#/profile`;
+  const manage = `${SITE}/?src=job-alert#/profile/emails`;
   const browse = `${SITE}/?src=job-alert#/`;
 
   const rows = shown.map((j) => `
