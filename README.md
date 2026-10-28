@@ -63,7 +63,12 @@ Add `?src=<name>` to any link, e.g. `https://jobsearchph.com/?src=fb-bacolod-gro
 | `assets/firebase-config.js` | Firebase keys, listing length |
 | `assets/styles.css` | Styles (light and dark) |
 | `firestore.rules` | Database security rules |
+| `assets/match.js` | Fit score (applicant vs. job), shared by the site and the emails |
+| `assets/safety.js` | Spots scam-looking chat messages, shared by the chat and the emails |
 | `scripts/build-job-pages.mjs` | Static job pages for search engines |
+| `scripts/send-emails.mjs` | Automatic emails every 15 minutes (see below) |
+| `scripts/send-job-alerts.mjs` | Daily job alerts for jobseekers |
+| `scripts/lib/` | Shared Firestore and email code for the two email scripts |
 
 ## Job alert emails
 
@@ -74,6 +79,30 @@ Jobseekers tick **Job alerts by email** on their profile and choose "only my cit
 - **Unsubscribe** works without signing in: the link writes `unsubscribes/{token}`, and the next run turns alerts off on that profile. `alertState/{uid}` records when each person was last emailed.
 - **Test**: Actions → Job alert emails → Run workflow → `dry-run` prints the emails without sending. Locally: `node scripts/send-job-alerts.mjs --fixture scripts/sample-alerts.json`.
 - **Limit**: Resend's free plan allows 100 emails a day and 3,000 a month. The script stops at `MAX_EMAILS` (90), and anyone it skips gets their alert on the next run.
+
+## Automatic emails (every 15 minutes)
+
+`.github/workflows/emails.yml` runs `scripts/send-emails.mjs`. Same secrets as job alerts; optional repo variable `ADMIN_EMAIL` (default jobsearchph.official@gmail.com).
+
+- **Employers:** one email per new applicant, with the applicant's fit score, how many have applied, and the best fit so far. Also "we got your post", "your post is live", "your changes are live" and "not approved". They can turn these off in My profile.
+- **Quiet employers (10 AM daily):** no live post for 30+ days → "Still hiring?" (at most once a month); signed up but never posted after a week → one nudge. Max 20 a day.
+- **Admin:** one summary email when there's something to do: posts to review, edited posts, support messages, reports, flagged chat messages and ID checks.
+- **Get Verified:** "You're verified" / "We couldn't verify your ID yet".
+- Nothing is sent twice: each email's key is saved in `mailLog/{key}`, and `meta/mailer.lastRun` remembers the last run.
+- Test locally against the emulator: `FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 EMAIL_OUTBOX=/tmp/outbox node scripts/send-emails.mjs` writes the emails as files instead of sending.
+- Both email scripts skip quietly until `FIREBASE_SERVICE_ACCOUNT` is added.
+
+## Fit score
+
+On an employer's applicant list, each applicant gets a 0–100 fit score with the reasons (job type, city, experience, live-in/schedule, education, skills from the post's checklist, availability). The best fit is shown first and highlighted; "Newest first" is one tap away. It's a sorting aid for people who applied to that post, not a recommendation, and the employer decides.
+
+## Chat safety and photos
+
+People can send a photo in chat (shrunk to under ~100 KB and stored with the message, because Storage needs the paid plan). `assets/safety.js` spots money/payment-app requests, fees, one-time codes, ID or account numbers and unknown links. Employers get a warning before sending such a message, jobseekers see a caution note under it, and the email robot saves it to **Admin → Chat flags** (admins can open any chat read-only).
+
+## Email confirmation
+
+Email + password sign-ups get Firebase's confirmation email. Employers must click it before posting (also enforced in `firestore.rules`); Google and Facebook sign-ins are not affected. Job alerts only go to confirmed addresses.
 
 ## Facebook login
 
@@ -87,6 +116,8 @@ Every pending post in **Admin → Pending** shows an *Employer check*: account a
 
 - **Ask for more info** keeps the post pending and notifies the employer, who can reply through support or update their profile.
 - **Verify employer** (after a call or a Facebook check) adds a green *Verified* badge to all their posts. Remove it from their page in Admin → Users.
+- **Get Verified (ID + selfie):** employers can send a photo of a government ID and a selfie holding it from their profile. Review them in **Admin → ID checks**. Approving gives the Verified badge; rejecting asks for a reason. Either way the photos are deleted right away and only the decision is kept.
+- **Editing:** employers can edit pending, live or rejected posts. An edit sends the post back to Pending with an "Edited" badge; re-approving a post that was live keeps its original date and expiry.
 
 ## Making someone an admin
 

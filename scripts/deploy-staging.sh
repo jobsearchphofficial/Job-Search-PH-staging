@@ -8,9 +8,9 @@ OUT="$(mktemp -d)"
 git clone -q "$STAGING_REPO" "$OUT" 2>/dev/null || { mkdir -p "$OUT"; git -C "$OUT" init -q -b main; git -C "$OUT" remote add origin "$STAGING_REPO"; }
 # Copy the site, minus things that belong only to the live site.
 rsync -a --delete --exclude .git --exclude CNAME --exclude sitemap.xml --exclude 'jobs/' --exclude '.github/' --exclude '__/' "$SRC"/ "$OUT"/
-# Only the job alert emails workflow runs on the test site (not the live site's job-pages builder).
+# Only the email workflows run on the test site (not the live site's job-pages builder).
 mkdir -p "$OUT/.github/workflows"
-cp "$SRC/.github/workflows/job-alerts.yml" "$OUT/.github/workflows/" 2>/dev/null || true
+for w in job-alerts.yml emails.yml; do cp "$SRC/.github/workflows/$w" "$OUT/.github/workflows/" 2>/dev/null || true; done
 echo "staging.jobsearchph.com" > "$OUT/CNAME"
 printf 'User-agent: *\nDisallow: /\n' > "$OUT/robots.txt"
 cd "$OUT"

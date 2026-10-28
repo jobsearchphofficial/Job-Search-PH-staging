@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS } from "./firebase-config.js?v=1793187527";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS } from "./firebase-config.js?v=1793189990";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -31,7 +31,7 @@ const toMs = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : v ??
 const norm = (snap) => {
   const d = snap.data();
   const out = { id: snap.id, ...d };
-  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "editedAt", "at"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
+  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "editedAt", "decidedAt", "at"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
   return out;
 };
 const jobsQ = async (...c) => (await F.getDocs(F.query(F.collection(db, "jobs"), ...c))).docs.map(norm);
@@ -44,6 +44,13 @@ export function ageFrom(birthDate) {
   const n = new Date(); let a = n.getFullYear() - b.getFullYear();
   if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) a--;
   return a;
+}
+
+// Signed in with email + password and hasn't clicked the confirmation link yet.
+// (Same test as firestore.rules uses before allowing a new job post.)
+async function needsConfirm(user) {
+  if (!user || user.emailVerified) return false;
+  try { return (await user.getIdTokenResult()).signInProvider === "password"; } catch { return false; }
 }
 
 async function loadProfile(user) {
@@ -111,8 +118,8 @@ export const store = {
       F.connectFirestoreEmulator(db, "127.0.0.1", 8085);
     }
     A.onAuthStateChanged(auth, async (user) => {
-      const extra = await loadProfile(user);
-      state = { user: user ? { uid: user.uid, displayName: user.displayName, email: user.email } : null, ...extra, ready: true };
+      const [extra, mustConfirmEmail] = await Promise.all([loadProfile(user), needsConfirm(user)]);
+      state = { user: user ? { uid: user.uid, displayName: user.displayName, email: user.email } : null, ...extra, mustConfirmEmail, ready: true };
       emit();
     });
   },
@@ -144,6 +151,19 @@ export const store = {
   async signUpEmail(email, pw, name) {
     const cred = await A.createUserWithEmailAndPassword(auth, email, pw);
     if (name) await A.updateProfile(cred.user, { displayName: name }).catch(() => {});
+    A.sendEmailVerification(cred.user, { url: `${location.origin}/#/profile` }).catch(() => {});
+  },
+  // Email confirmation for email + password accounts.
+  async sendVerification() { await A.sendEmailVerification(auth.currentUser, { url: `${location.origin}/#/profile` }); },
+  // After they click the link: refresh the account (and its token, which the database rules read).
+  async refreshVerified() {
+    const u = auth.currentUser; if (!u) return false;
+    await u.reload(); await u.getIdToken(true);
+    const must = await needsConfirm(auth.currentUser);
+    state = { ...state, mustConfirmEmail: must };
+    if (!must && state.profile && !state.profile.emailVerified) await this.saveProfile({}).catch(() => {});
+    else emit();
+    return !must;
   },
   async resetPassword(email) { await A.sendPasswordResetEmail(auth, email); },
   async signOut() { await A.signOut(auth); },
@@ -160,7 +180,7 @@ export const store = {
     try { await F.setDoc(ref, payload, { merge: true }); }
     catch (e) { // older published rules don't know the newest optional fields yet: save without them
       if (e.code !== "permission-denied") throw e;
-      ["src", "jobCategoryOther", "fbUrl", "bizReg", "signIn", "emailVerified", "alerts", "alertsScope", "alertsToken"].forEach((k) => delete payload[k]);
+      ["src", "jobCategoryOther", "fbUrl", "bizReg", "signIn", "emailVerified", "alerts", "alertsScope", "alertsToken", "emailNotify"].forEach((k) => delete payload[k]);
       await F.setDoc(ref, payload, { merge: true });
     }
     const extra = await loadProfile(auth.currentUser);
@@ -279,7 +299,7 @@ export const store = {
     const applicant = {
       fullName: p.fullName, phone: p.phone, city: p.city, messenger: p.messenger || "",
       email: auth.currentUser.email || "", age: ageFrom(p.birthDate), gender: p.gender || "",
-      jobCategories: p.jobCategories || [], jobCategoryOther: p.jobCategoryOther || "", experienceYears: p.experienceYears ?? null,
+      jobCategories: p.jobCategories || [], jobCategoryOther: p.jobCategoryOther || "", jobTypes: p.jobTypes || [], experienceYears: p.experienceYears ?? null,
       skills: p.skills || "", workHistory: p.workHistory || "", education: p.education || "",
       availability: p.availability || "", resumeUrl: p.resumeUrl || "",
       resumeFileUrl: p.resumeFileUrl || "", resumeFileName: p.resumeFileName || "", photo: p.photo || "",
@@ -297,6 +317,8 @@ export const store = {
   },
   async myApplications() { return appsQ(F.where("applicantUid", "==", uid())); },
   async applicationsForJob(jobId) { return appsQ(F.where("jobId", "==", jobId), F.where("employerUid", "==", uid())); },
+  // Admin: everyone who applied to any post (read-only view).
+  async applicationsForJobAdmin(jobId) { return appsQ(F.where("jobId", "==", jobId)); },
   async applicationsForEmployer() { return appsQ(F.where("employerUid", "==", uid())); },
   async setApplicationStatus(a, status, { silent = false, note } = {}) {
     await F.updateDoc(F.doc(db, "applications", a.id), { status, updatedAt: F.serverTimestamp(), declinedAt: status === "not_selected" ? F.serverTimestamp() : null });
@@ -352,23 +374,24 @@ export const store = {
     return F.onSnapshot(F.query(F.collection(db, "applications", appId, "messages"), F.orderBy("createdAt", "asc"), F.limit(500)),
       (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: toMs(d.data().createdAt) || Date.now(), pending: d.metadata.hasPendingWrites }))), (e) => cb(null, e));
   },
-  async sendMessage(a, text) {
+  async sendMessage(a, text, photo = "") {
     const me = uid(); const iAmEmployer = a.employerUid === me;
     const u = await this.usage();
     if (u.msgAt && typeof u.msgAt.toMillis === "function" && Date.now() - u.msgAt.toMillis() < 2500) throw Object.assign(new Error("slow"), { code: "too-fast" });
     const b = F.writeBatch(db);
-    b.set(F.doc(F.collection(db, "applications", a.id, "messages")), { fromUid: me, text, createdAt: F.serverTimestamp() });
+    b.set(F.doc(F.collection(db, "applications", a.id, "messages")), { fromUid: me, text, createdAt: F.serverTimestamp(), ...(photo ? { photo } : {}) });
+    const preview = photo ? `📷 Photo${text ? `: ${text}` : ""}` : text;
     await this._bump(b, "messages", { msgAt: F.serverTimestamp() });
     await b.commit();
     const otherSeen = iAmEmployer ? a.applicantSeenAt : a.employerSeenAt;
     const otherCaughtUp = !a.lastMessageAt || a.lastMessageFrom === (iAmEmployer ? a.applicantUid : a.employerUid) || (otherSeen && otherSeen >= a.lastMessageAt);
     await F.updateDoc(F.doc(db, "applications", a.id), {
-      lastMessageAt: F.serverTimestamp(), lastMessageFrom: me, lastMessageText: text.slice(0, 140),
+      lastMessageAt: F.serverTimestamp(), lastMessageFrom: me, lastMessageText: preview.slice(0, 140),
       [iAmEmployer ? "employerSeenAt" : "applicantSeenAt"]: F.serverTimestamp(),
     });
     if (otherCaughtUp) {
       const fromName = iAmEmployer ? (a.employerName || "The employer") : (a.applicant?.fullName || "An applicant");
-      await this.notify(iAmEmployer ? a.applicantUid : a.employerUid, { type: "message", title: `New message from ${fromName}`, body: text.slice(0, 120), link: `#/chat/${a.id}`, appId: a.id, jobId: a.jobId }).catch(() => {});
+      await this.notify(iAmEmployer ? a.applicantUid : a.employerUid, { type: "message", title: `New message from ${fromName}`, body: preview.slice(0, 120), link: `#/chat/${a.id}`, appId: a.id, jobId: a.jobId }).catch(() => {});
     }
   },
   async markSeen(a) {
@@ -424,6 +447,23 @@ export const store = {
     catch { verifiedCache = verifiedCache || {}; }
     return verifiedCache;
   },
+  /* ---- Get Verified: employer sends an ID photo + selfie; an admin approves or rejects ---- */
+  async myVerifyRequest() {
+    try { const s = await F.getDoc(F.doc(db, "verifyRequests", uid())); return s.exists() ? norm(s) : null; } catch { return null; }
+  },
+  async submitVerify({ idType, idPhoto, selfie, fbUrl }) {
+    await F.setDoc(F.doc(db, "verifyRequests", uid()), { idType, idPhoto, selfie, fbUrl: fbUrl || "", consent: true, status: "pending", createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() });
+  },
+  async withdrawVerify() { await F.deleteDoc(F.doc(db, "verifyRequests", uid())); },
+  async listVerifyRequests() { return (await F.getDocs(F.query(F.collection(db, "verifyRequests"), F.where("status", "==", "pending")))).docs.map(norm); },
+  // Approve or reject. Either way the ID photo and selfie are deleted right away; only the decision is kept.
+  async decideVerify(id, { approve, reason = "", idType = "" }) {
+    const b = F.writeBatch(db);
+    b.update(F.doc(db, "verifyRequests", id), { status: approve ? "approved" : "rejected", reason: reason.slice(0, 200), decidedAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), idPhoto: F.deleteField(), selfie: F.deleteField() });
+    if (approve) b.set(F.doc(db, "verified", id), { method: `ID + selfie${idType ? ` (${idType})` : ""}`.slice(0, 60), at: F.serverTimestamp(), by: uid() });
+    await b.commit();
+    return this.verifiedList(true);
+  },
   async verify(id, method) {
     await F.setDoc(F.doc(db, "verified", id), { method, at: F.serverTimestamp(), by: uid() });
     return this.verifiedList(true);
@@ -449,6 +489,12 @@ export const store = {
     const s = await F.getDocs(F.query(F.collection(db, "reports"), F.orderBy("createdAt", "desc"), F.limit(200)));
     return s.docs.map(norm);
   },
+  // Chat messages flagged by the email robot (scripts/send-emails.mjs).
+  async listFlags() {
+    const s = await F.getDocs(F.query(F.collection(db, "flags"), F.orderBy("createdAt", "desc"), F.limit(200)));
+    return s.docs.map(norm);
+  },
+  async dismissFlag(id) { await F.deleteDoc(F.doc(db, "flags", id)); },
   async dismissReport(id) { await F.deleteDoc(F.doc(db, "reports", id)); },
   async clearReportsFor(jobId) {
     const s = await F.getDocs(F.query(F.collection(db, "reports"), F.where("jobId", "==", jobId)));

@@ -1019,3 +1019,68 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 /* Profile: connect Facebook */
 .fb-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .fb-link span { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Fit score on applicant cards */
+.fit { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; margin: 10px 0; background: var(--bg); }
+.fit-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fit-score { font-weight: 700; font-size: 1.25rem; line-height: 1; }
+.fit-score small { font-size: .7rem; font-weight: 500; opacity: .6; margin-left: 1px; }
+.fit-bar { flex: 1 1 100%; height: 6px; border-radius: 6px; background: rgba(120,120,150,.18); overflow: hidden; }
+.fit-bar i { display: block; height: 100%; border-radius: 6px; background: currentColor; }
+.fit-great { color: var(--green); } .fit-good { color: var(--indigo); } .fit-ok { color: var(--orange-text); } .fit-weak { color: var(--slate-soft); }
+.fit strong { color: var(--navy); }
+.fit ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .82rem; color: var(--slate); }
+.fit .fit-good li::before { content: "✓ "; color: var(--green); font-weight: 700; }
+.fit .fit-gaps li::before { content: "– "; color: var(--slate-soft); }
+.fit-best { font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--green-soft); color: var(--green); }
+.applicant.is-top { box-shadow: 0 0 0 2px var(--ok-line), var(--shadow-sm); }
+.ap-sort { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 12px; }
+.ap-sort .fit-note { flex-basis: 100%; }
+/* Admin user page: ban tucked away */
+.au-ban.quiet { background: transparent; box-shadow: none; border: 1px dashed var(--line); }
+.au-more > summary { cursor: pointer; font-size: .85rem; color: var(--slate); list-style: none; }
+.au-more > summary::before { content: "▸ "; } .au-more[open] > summary::before { content: "▾ "; }
+.au-more[open] > summary { margin-bottom: 8px; }
+
+/* Post form: several contacts */
+.contact-rows { display: grid; gap: 8px; margin-bottom: 10px; }
+.crow { display: grid; grid-template-columns: minmax(110px, 150px) 1fr 40px; gap: 8px; align-items: center; }
+.crow select, .crow input { width: 100%; }
+.crow-x { height: 40px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--card); color: var(--slate); font-size: 1.2rem; cursor: pointer; }
+.crow-x:hover { color: var(--red); border-color: var(--bad-line); }
+@media (max-width: 420px) { .crow { grid-template-columns: 1fr 40px; } .crow select { grid-column: 1 / -1; } }
+
+/* Confirm your email */
+.confirm-email { display: grid; gap: 10px; margin-bottom: 16px; }
+.confirm-email .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Chat: photos, scam warnings, admin view */
+.chat-form { align-items: flex-end; }
+.chat-photo { flex: none; padding: 0 10px; height: 42px; display: inline-flex; align-items: center; cursor: pointer; }
+.msg-photo { display: block; max-width: min(260px, 70vw); max-height: 320px; border-radius: 10px; margin: 2px 0 6px; cursor: zoom-in; object-fit: cover; }
+.msg-warn { max-width: 85%; margin: -2px 0 10px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--peach); border: 1px solid var(--warn-line); color: var(--orange-text); font-size: .82rem; line-height: 1.4; }
+.msg.mine + .msg-warn { margin-left: auto; }
+.msg-who { display: block; font-size: .72rem; font-weight: 600; opacity: .7; margin-bottom: 2px; }
+.photo-preview { display: block; max-width: 100%; max-height: 50vh; border-radius: 10px; margin: 6px auto 10px; }
+.lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(10, 14, 30, .88); display: flex; align-items: center; justify-content: center; padding: 16px; cursor: zoom-out; }
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+.lightbox button { position: absolute; top: 12px; right: 16px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(255,255,255,.15); color: #fff; font-size: 1.5rem; cursor: pointer; }
+
+/* Get Verified (employer profile) */
+.verify-card { border: 1px solid var(--soft-line); background: var(--indigo-soft); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; display: grid; gap: 10px; }
+.verify-card svg { width: 22px; height: 22px; color: var(--green); flex: none; }
+.vc-head, .vc-done { display: flex; gap: 10px; align-items: flex-start; }
+.vc-head p { margin: 2px 0 0; }
+.vc-form { display: grid; gap: 12px; margin-top: 4px; }
+.vc-pics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vc-pick { display: grid; gap: 6px; }
+.vc-pick img { width: 100%; max-height: 180px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+@media (max-width: 520px) { .vc-pics { grid-template-columns: 1fr; } }
+/* Admin: ID checks */
+.vr-item { border: 1px solid var(--line); background: var(--card); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; display: grid; gap: 10px; }
+.vr-item header { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.vr-item header a { margin-left: auto; }
+.vr-pics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vr-pics figure { margin: 0; }
+.vr-pics img { width: 100%; max-height: 300px; object-fit: contain; background: var(--bg); border-radius: var(--radius-sm); cursor: zoom-in; }
+.vr-pics figcaption { font-size: .78rem; color: var(--slate); margin-top: 4px; }
