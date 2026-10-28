@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL } from "./firebase-config.js?v=1793208108";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL } from "./firebase-config.js?v=1793208647";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -401,6 +401,42 @@ export const store = {
     if (msg) await this.notify(other, { type: `emp_${kind}`, title: msg[0], body: msg[1], link: iAmEmployer ? "#/applications" : `#/applicants/${a.jobId}`, appId: a.id, jobId: a.jobId }).catch(() => {});
   },
   async withdraw(id) { await F.deleteDoc(F.doc(db, "applications", id)); },
+
+  /* ---- Delete my account ---- */
+  // Firebase only deletes a sign-in account that signed in within the last few minutes, so ask first.
+  async reauth(password) {
+    const u = auth.currentUser, p = this.providers();
+    if (p.includes("password")) {
+      if (!password) throw Object.assign(new Error("Enter your password."), { code: "need-password" });
+      return A.reauthenticateWithCredential(u, A.EmailAuthProvider.credential(u.email, password));
+    }
+    if (p.includes("google.com")) return A.reauthenticateWithPopup(u, new A.GoogleAuthProvider());
+    if (p.includes("facebook.com")) return A.reauthenticateWithPopup(u, new A.FacebookAuthProvider());
+  },
+  // Deletes everything about this person that the site can: posts, applications, notifications, ID check,
+  // phone check, profile, then the sign-in account. step(text) reports progress.
+  async deleteAccount(step = () => {}) {
+    const me = uid(), now = F.serverTimestamp();
+    const commitAll = async (ops) => { for (let i = 0; i < ops.length; i += 400) { const b = F.writeBatch(db); ops.slice(i, i + 400).forEach((op) => op(b)); await b.commit(); } };
+    step("Removing your applications…");
+    const mine = await F.getDocs(F.query(F.collection(db, "applications"), F.where("applicantUid", "==", me)));
+    await commitAll(mine.docs.map((d) => (b) => d.data().lastMessageAt
+      ? b.update(d.ref, { applicant: { fullName: "Deleted user" }, applicantDeleted: true, deletedAt: now, updatedAt: now })
+      : b.delete(d.ref)));
+    step("Removing your job posts…");
+    const received = await F.getDocs(F.query(F.collection(db, "applications"), F.where("employerUid", "==", me)));
+    await commitAll(received.docs.map((d) => (b) => b.update(d.ref, { employerName: "Deleted user", employerDeleted: true, deletedAt: now, updatedAt: now })));
+    const jobs = await F.getDocs(F.query(F.collection(db, "jobs"), F.where("ownerUid", "==", me)));
+    for (const j of jobs.docs) { await F.deleteDoc(F.doc(db, "jobs", j.id, "private", "contact")).catch(() => {}); await F.deleteDoc(j.ref); }
+    step("Removing your notifications…");
+    const notes = await F.getDocs(F.query(F.collection(db, "notifications"), F.where("toUid", "==", me)));
+    await commitAll(notes.docs.map((d) => (b) => b.delete(d.ref)));
+    step("Removing your profile…");
+    await Promise.all(["verifyRequests", "phoneVerified", "verified"].map((c) => F.deleteDoc(F.doc(db, c, me)).catch(() => {})));
+    await F.deleteDoc(F.doc(db, "users", me));
+    step("Deleting your sign-in…");
+    await auth.currentUser.delete();
+  },
 
   /* ---- Messages ---- */
   watchApplications(role, cb) {

@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793208108";
-import { IS_STAGING } from "./firebase-config.js?v=1793208108";
-import { fitScore, rankApplicants } from "./match.js?v=1793208108";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793208108";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793208647";
+import { IS_STAGING } from "./firebase-config.js?v=1793208647";
+import { fitScore, rankApplicants } from "./match.js?v=1793208647";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793208647";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1254,7 +1254,7 @@ function viewProfile(focus) {
       <p id="form-error" class="error" hidden></p>
       <div class="form-actions">
         <button class="btn btn-primary" type="submit">${isNew ? "Save and continue" : "Save changes"}</button>
-        ${!isNew ? `<button class="btn btn-danger btn-sm" type="button" id="del-profile">Delete my profile</button>` : ""}
+        ${!isNew ? `<a class="linkbtn small danger-link" href="#/delete-account">Delete my account</a>` : ""}
       </div>
     </form>`;
 
@@ -1308,11 +1308,6 @@ function viewProfile(focus) {
       b.disabled = true;
       try { if (on) await store.unlinkFacebook(); else await store.linkFacebook(); toast(on ? "Facebook removed" : "Facebook connected"); viewProfile(); }
       catch (ex) { b.disabled = false; toast(authError(ex)); }
-    });
-    $("#del-profile")?.addEventListener("click", async (e) => {
-      if (!confirmInline(e.target, "Click again to delete")) return;
-      try { await store.deleteProfile(); myAppsCache = null; await signOutAndReload("deleted"); }
-      catch { toast("Could not delete profile"); }
     });
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -2182,7 +2177,7 @@ async function viewApplicants(jobId) {
   let tab = "all";
   let sort = (() => { try { return localStorage.getItem("jsph-ap-sort") || "fit"; } catch { return "fit"; } })();
   const draw = async () => {
-    const raw = await (adminView ? store.applicationsForJobAdmin(jobId) : store.applicationsForJob(jobId));
+    const raw = (await (adminView ? store.applicationsForJobAdmin(jobId) : store.applicationsForJob(jobId))).filter((x) => adminView || !x.applicantDeleted);
     const ranked = rankApplicants(job, raw);
     const bestId = ranked.find((a) => !DECLINED.includes(a.status))?.id;
     const apps = sort === "fit" ? ranked : [...ranked].sort((a, b) => b.createdAt - a.createdAt);
@@ -2374,6 +2369,7 @@ let inbox = [];
 let unwatchInbox = null;
 let inboxRole = null;
 function chatState(a) {
+  if (a.applicantDeleted || a.employerDeleted) return { open: false, declined: true, gone: true, hoursLeft: 0 };
   if (!DECLINED.includes(a.status)) return { open: true, declined: false };
   const closesAt = (typeof a.declinedAt === "number" ? a.declinedAt : Date.now()) + CHAT_GRACE_MS; // just declined = full 48h
   const left = closesAt - Date.now();
@@ -2466,7 +2462,7 @@ async function viewChat(appId) {
     $("#chat-badge").innerHTML = appBadge(a.status, iAmEmployer);
     const emp = adminView ? "" : (a.status === "hired" && !a.employmentEnded && a.endRequestedBy ? `<div class="chat-banner emp">${employmentHtml(a)}</div>` : "")
       + (a.status === "offered" ? `<div class="chat-banner emp">${iAmEmployer ? `<span class="emp-state">You offered ${esc(name)} the job. Waiting for them to accept.</span>` : offerHtml(a)}</div>` : "");
-    $("#chat-banner").innerHTML = emp + (st.declined
+    $("#chat-banner").innerHTML = st.gone ? `<p class="chat-banner closed">${(iAmEmployer ? a.applicantDeleted : a.employerDeleted) || adminView ? "This person deleted their account." : "You deleted your account."} The chat is closed. Past messages are deleted after 30 days.</p>` : emp + (st.declined
       ? `<p class="chat-banner ${st.open ? "" : "closed"}">${st.open
           ? `${a.status === "offer_declined" ? (iAmEmployer ? `${esc(name)} declined your offer.` : "You declined this offer.") : iAmEmployer ? "You marked this applicant as not a fit." : "The employer chose other applicants."} This chat closes in <strong>${st.hoursLeft} hour${st.hoursLeft === 1 ? "" : "s"}</strong>.`
           : "This chat has closed. You can still read past messages."}</p>` : "");
@@ -2630,6 +2626,58 @@ async function viewAuthAction() {
   location.hash = "#/"; route();
 }
 
+/* ---------------- Delete my account ---------------- */
+function viewDeleteAccount() {
+  document.title = "Delete my account | Job Search PH";
+  const { user, profile, banned } = getAuthState();
+  if (!user) return goSignIn("Sign in to delete your account");
+  const back = `<p><a href="#/profile" class="back">← My profile</a></p>`;
+  if (banned) { app.innerHTML = `${back}<div class="ce-wrap"><div class="ce-card"><h1>Contact us to delete your account</h1><p class="muted">Your account is suspended, so it can only be deleted by our team.</p><div class="ce-actions"><a class="btn btn-primary" href="#/support">Contact support</a></div></div></div>`; return; }
+  const usesPassword = store.providers().includes("password");
+  const employer = profile?.role === "employer";
+  app.innerHTML = `${back}<div class="ce-wrap"><div class="ce-card da-card">
+    <div class="ce-ico bad" aria-hidden="true"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></div>
+    <h1>Delete my account</h1>
+    <p class="muted">This can't be undone. Here's what happens:</p>
+    <ul class="da-list">
+      <li><strong>Deleted now:</strong> your profile, photo, ${employer ? "job posts and their contact details" : "applications that have no messages"}, notifications, job alert settings, and any ID check or phone confirmation.</li>
+      ${employer ? `<li><strong>Applicants</strong> to your posts will see your chats as closed, from "Deleted user".</li>` : `<li><strong>Employers</strong> you've chatted with will see the chat as closed, from "Deleted user".</li>`}
+      <li><strong>Deleted after 30 days:</strong> past chat messages. We keep them that long only to look into scam reports.</li>
+      <li>You can create a new account later with the same email.</li>
+    </ul>
+    <form id="da-form" class="auth-form" novalidate>
+      ${usesPassword ? `<label for="da-pw">Your password</label><input id="da-pw" type="password" autocomplete="current-password">` : `<p class="small muted">We'll ask you to sign in with ${store.providers().includes("google.com") ? "Google" : "Facebook"} once more to make sure it's you.</p>`}
+      <label for="da-confirm">Type <strong>DELETE</strong> to confirm</label><input id="da-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <p class="error" id="da-msg" hidden></p>
+      <button class="btn btn-danger btn-block" type="submit">Delete my account forever</button>
+    </form>
+  </div></div>`;
+  $("#da-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const m = $("#da-msg"), btn = e.target.querySelector("button");
+    const say = (t, bad = true) => { m.textContent = t; m.hidden = false; m.classList.toggle("ok", !bad); };
+    if ($("#da-confirm").value.trim().toUpperCase() !== "DELETE") return say("Type DELETE in the box to confirm.");
+    btn.disabled = true; btn.textContent = "Checking it's you…";
+    try { await store.reauth($("#da-pw")?.value || ""); }
+    catch (ex) {
+      btn.disabled = false; btn.textContent = "Delete my account forever";
+      return say(ex.code === "need-password" ? "Enter your password." : /wrong-password|invalid-credential|invalid-login/.test(ex.code || "") ? "That password isn't right." : /popup-closed|cancelled/.test(ex.code || "") ? "Sign-in was closed. Try again." : "We couldn't confirm it's you. Try again.");
+    }
+    try {
+      document.body.classList.add("signing-out");
+      await store.deleteAccount((t) => { btn.textContent = t; });
+      try { sessionStorage.clear(); } catch {}
+      history.replaceState(null, "", `${location.pathname}${location.search}#/signedout/deleted`);
+      location.reload();
+    } catch (ex) {
+      console.error(ex);
+      document.body.classList.remove("signing-out");
+      btn.disabled = false; btn.textContent = "Try again";
+      say("Something went wrong partway. Tap Try again to finish deleting. If it keeps failing, contact support.");
+    }
+  });
+}
+
 /* ---------------- Sign out: full reload (like Facebook), then a "You're signed out" page ---------------- */
 // Reloading wipes everything the last person had open (chats, applicants, profile) from the page's memory,
 // which matters on shared phones and computer-shop PCs.
@@ -2640,14 +2688,15 @@ async function signOutAndReload(reason = "") {
   history.replaceState(null, "", `${location.pathname}${location.search}#/signedout${reason ? `/${reason}` : ""}`);
   location.reload();
 }
+const BYE = ["See you again soon!", "Thanks for stopping by. Come back anytime!", "Good luck out there. We'll be here when you need us!"];
 function viewSignedOut(reason) {
   if (getAuthState().user) { location.hash = "#/"; return; }
   document.title = "Signed out | Job Search PH";
   const deleted = reason === "deleted";
   app.innerHTML = `<div class="ce-wrap"><div class="ce-card">
     <div class="ce-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></div>
-    <h1>${deleted ? "Your profile was deleted" : "You're signed out"}</h1>
-    <p class="muted">${deleted ? "Your profile and its details were removed. Thank you for using Job Search PH." : "See you again soon! If this is a shared phone or computer, your account is now safe to leave."}</p>
+    <h1>${deleted ? "Your account was deleted" : "You're signed out"}</h1>
+    <p class="muted">${deleted ? "Your account and its details were deleted. Thank you for using Job Search PH." : BYE[Math.floor(Math.random() * BYE.length)]}</p>
     <div class="ce-actions"><a class="btn btn-primary" href="#/signin">${deleted ? "Create a new account" : "Sign in again"}</a><a class="btn btn-ghost" href="#/">Browse jobs</a></div>
   </div></div>`;
 }
@@ -3317,7 +3366,7 @@ function viewStatic(page) {
         ${faq("How does hiring work?", "When an employer picks you, they send a <strong>job offer</strong>. You'll get a notification and can <strong>Accept</strong> or <strong>Decline</strong> it from the job page, My applications, or the chat. You're only marked as hired once you accept. If you decline, the employer is told and the chat closes after 48 hours.")}
         ${faq("How do I leave a job I got here?", "Go to <strong>My applications</strong> and tap <strong>Leave this job</strong>. Your employer confirms, and then you can apply to full-time jobs again. Employers can also start this from the applicant card.")}
         ${faq("What's the minimum pay for a kasambahay?", "In Negros Occidental (Western Visayas), it's ₱6,500 a month, effective November 19, 2025. Employers must also give a weekly rest day and 13th month pay.")}
-        ${faq("How do I change or delete my profile?", "Open the gear menu → <strong>My profile</strong>. You can edit everything there, or tap <strong>Delete my profile</strong>. To delete your whole account, email us.")}
+        ${faq("How do I change or delete my profile?", "Open the gear menu → <strong>My profile</strong>. You can edit everything there. To delete your account, tap <strong>Delete my account</strong> at the bottom of My profile.")}
         ${faq("I'm under 18. Can I use the site?", "Not yet. Job Search PH is only for people 18 and older.")}
         <div class="legal-contact"><strong>Still need help?</strong> Message us on <a href="${SUPPORT_MESSENGER}" target="_blank" rel="noopener">Messenger</a>, email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>, or <a href="#/support">contact support</a>.</div>
       </article>`,
@@ -3352,7 +3401,7 @@ function viewStatic(page) {
         ["Who can see it", `<ul><li><strong>Everyone:</strong> live job posts (title, employer or household name, area, pay and details). Employer contact details are not public.</li><li><strong>Employers you apply to:</strong> your profile, photo, age, contact details, message, experience and resume.</li><li><strong>The worker you hire:</strong> the employer contact you entered on the post, once they accept your job offer.</li><li><strong>The person you're chatting with:</strong> your messages.</li><li><strong>Job Search PH admins:</strong> all data, only to run and keep the site safe.</li><li><strong>Service provider:</strong> the site runs on Google Firebase, which stores data for us under its own security and privacy terms.</li></ul><p>We may also disclose data when the law requires it, such as a lawful order from the authorities.</p>`],
         ["How long we keep it", `<ul><li>Your profile stays until you delete it.</li><li>Job posts expire after 30 days and stay in your account until removed.</li><li>Applications and chats stay so both sides can refer back to them. Chats with declined applicants close after 48 hours but remain readable.</li><li>Reports and safety records are kept as long as needed to protect users, then deleted.</li></ul>`],
         ["How we protect it", `<p>Data is stored on Google Firebase with access rules that let each person see only what they're allowed to. Admin access is limited to authorized Job Search PH staff. No system is perfectly secure, so please use a strong password and keep it private.</p>`],
-        ["Your rights", `<p>Under the Data Privacy Act, you can:</p><ul><li>Ask what data we have about you and get a copy;</li><li>Correct wrong information (most of it you can edit in My profile);</li><li>Delete your profile (My profile → Delete my profile) or ask us to delete your whole account;</li><li>Object to how we use your data, or withdraw consent;</li><li>File a complaint with the National Privacy Commission (privacy.gov.ph).</li></ul><p>To make a request, email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`],
+        ["Your rights", `<p>Under the Data Privacy Act, you can:</p><ul><li>Ask what data we have about you and get a copy;</li><li>Correct wrong information (most of it you can edit in My profile);</li><li>Delete your whole account yourself (My profile → <a href="#/delete-account">Delete my account</a>). Your profile, posts, applications and notifications are deleted right away; chat messages are deleted 30 days later (we keep them that long only to investigate scam reports);</li><li>Object to how we use your data, or withdraw consent;</li><li>File a complaint with the National Privacy Commission (privacy.gov.ph).</li></ul><p>To make a request, email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`],
         ["Age limit", `<p>Job Search PH is for people 18 and older. We don't knowingly collect data from anyone younger. If you think a minor has an account, tell us and we'll remove it.</p>`],
         ["Changes to this policy", `<p>We may update this policy. We'll post the new version here with a new date, and announce important changes on the site.</p>`],
       ]),
@@ -3389,17 +3438,17 @@ async function route() {
   if (page === "unsubscribe") return viewUnsubscribe(arg || "");
   if (user && banned && !isAdmin && !["support", "safety", "terms", "privacy"].includes(page || "")) return viewSuspended(banned);
   // Email + password accounts confirm their email before using the site (Google/Facebook are already confirmed).
-  if (user && getAuthState().mustConfirmEmail && !isAdmin && !["safety", "terms", "privacy", "support"].includes(page || "")) {
+  if (user && getAuthState().mustConfirmEmail && !isAdmin && !["safety", "terms", "privacy", "support", "delete-account"].includes(page || "")) {
     if (page && page !== "signin" && !returnTo) returnTo = location.hash;
     return viewConfirmEmail();
   }
   // Everyone needs a first and last name. Older one-word profiles are sent to fix it.
-  if (user && profile && !isAdmin && !isFullName(profile.fullName) && !["profile", "safety", "terms", "privacy", "support"].includes(page || "")) {
+  if (user && profile && !isAdmin && !isFullName(profile.fullName) && !["profile", "safety", "terms", "privacy", "support", "delete-account"].includes(page || "")) {
     if (!returnTo && page) returnTo = location.hash;
     location.hash = "#/profile"; return;
   }
   // New accounts finish their profile first; browsing jobs and reading info pages still work.
-  if (user && !profile && !["", "job", "profile", "signin", "safety", "terms", "privacy", "support"].includes(page || "")) {
+  if (user && !profile && !["", "job", "profile", "signin", "safety", "terms", "privacy", "support", "delete-account", "signedout"].includes(page || "")) {
     if (!returnTo) returnTo = location.hash;
     location.hash = "#/profile"; return;
   }
@@ -3408,6 +3457,7 @@ async function route() {
   if (page === "job" && arg) { let raw = arg; try { raw = decodeURIComponent(arg); } catch {} const id = (raw.match(/^[A-Za-z0-9_-]+/) || [""])[0]; if (id && id !== raw) { history.replaceState(null, "", `${location.pathname}${location.search}#/job/${id}`); } return viewJob(id); }
   if (page === "signin") return viewSignIn();
   if (page === "signedout") return viewSignedOut(arg);
+  if (page === "delete-account") return viewDeleteAccount();
   if (page === "profile") return viewProfile(arg === "emails" ? "emails" : "");
   if (page === "verify") return viewVerify();
   if (page === "post") return viewPost(arg === "edit" && arg2 ? decodeURIComponent(arg2) : null);

@@ -13,7 +13,7 @@
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { connect, hasFirebaseKey, query, get, patch } from "./lib/firestore.mjs";
+import { connect, hasFirebaseKey, query, get, patch, remove } from "./lib/firestore.mjs";
 import { layout, sendEmail, button, card, esc, link, salaryText } from "./lib/email.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -74,7 +74,7 @@ async function newApplicants(since) {
     const key = `app_${app.id}`;
     if (await seen(key)) continue;
     const [job, emp] = await Promise.all([getJob(app.jobId), getUser(app.employerUid), verifiedIds()]);
-    if (!job || !emp?.email || emp.emailNotify === false) { await mark(key, "skipped"); continue; }
+    if (!job || !emp?.email || emp.emailNotify === false || app.applicantDeleted) { await mark(key, "skipped"); continue; }
     const ranked = rankApplicants(job, await appsFor(app.jobId)).filter((a) => a.createdAt <= app.createdAt || a.id === app.id);
     const me = ranked.find((a) => a.id === app.id) || { ...app, fit: rankApplicants(job, [app])[0].fit };
     const active = ranked.filter((a) => !DECLINED.includes(a.status));
@@ -134,6 +134,21 @@ async function postUpdates(since) {
     if (capped) return pendingForAdmin;
   }
   return pendingForAdmin;
+}
+
+/* ---------- Deleted accounts: remove their closed chats 30 days later ---------- */
+async function purgeDeletedChats() {
+  const cutoff = Date.now() - 30 * 86400000;
+  const apps = [...await query("applications", [["applicantDeleted", "EQUAL", true]]), ...await query("applications", [["employerDeleted", "EQUAL", true]])];
+  const seenIds = new Set();
+  for (const a of apps) {
+    if (seenIds.has(a.id) || !a.deletedAt || a.deletedAt > cutoff) continue;
+    seenIds.add(a.id);
+    const msgs = await query("messages", [], 2000, `applications/${a.id}`);
+    for (const m of msgs) await remove(`applications/${a.id}/messages/${m.id}`);
+    await remove(`applications/${a.id}`);
+    console.log(`Removed chat ${a.id} (${msgs.length} messages) of a deleted account`);
+  }
 }
 
 /* ---------- Get Verified: delete ID photos nobody checked within 14 days ---------- */
@@ -271,6 +286,7 @@ async function main() {
     const pending = capped ? [] : await postUpdates(since);
     const flagged = await scanChats(since).catch((e) => { console.error(`Chat scan failed: ${e.message}`); return []; });
     await expireVerify().catch((e) => console.error(`ID check cleanup failed: ${e.message}`));
+    await purgeDeletedChats().catch((e) => console.error(`Deleted-account cleanup failed: ${e.message}`));
     const verifyReqs = capped ? [] : await verifyUpdates(since);
     if (!capped) await adminSummary(since, pending, flagged, verifyReqs);
     if (!capped) await employerReminders();

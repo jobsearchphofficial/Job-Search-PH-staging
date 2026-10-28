@@ -1157,3 +1157,8 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .ce-card .auth-form { text-align: left; margin-top: 14px; }
 .name-needed { margin-bottom: 16px; max-width: 779px; box-sizing: border-box; }
 .signing-out #app { opacity: .4; pointer-events: none; transition: opacity .15s; }
+.ce-ico.bad { background: var(--red-soft, #fde8e6); color: var(--red, #c0392b); }
+.da-card { text-align: left; }
+.da-card h1, .da-card > p.muted:first-of-type, .da-card .ce-ico { text-align: center; }
+.da-list { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 8px; font-size: .95rem; }
+.danger-link { color: var(--red, #c0392b); margin-left: auto; }

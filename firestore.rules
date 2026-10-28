@@ -164,7 +164,8 @@ service cloud.firestore {
                          'openings','startDate','benefits','reqExperience','reqEducation','reqList','requirements','description',
                          'status','updatedAt','editedAt'])
                     && validJob(request.resource.data);
-      allow delete: if isAdmin();
+      // Owners may delete their posts when they delete their account.
+      allow delete: if isAdmin() || (signedIn() && notBanned() && resource.data.ownerUid == me());
 
       // Employer contact details: visible to the owner, admins, and the worker they hired.
       match /private/{docId} {
@@ -180,7 +181,7 @@ service cloud.firestore {
                     && optStr(request.resource.data.get('address', null), 200)
                     && request.resource.data.contactMethod in ['messenger', 'phone', 'email']
                     && str(request.resource.data.contactValue, 3, 200);
-        allow delete: if isAdmin();
+        allow delete: if isAdmin() || (signedIn() && notBanned() && jobDoc(jobId).data.ownerUid == me());
       }
     }
 
@@ -229,6 +230,19 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastMessageFrom', 'lastMessageText', 'employerSeenAt'])
                     && request.resource.data.get('lastMessageFrom', '') in [me(), resource.data.get('lastMessageFrom', '')];
 
+      // Deleting an account: that person's details are wiped from their applications and the chat closes.
+      // (The email robot deletes these chats completely 30 days later.)
+      allow update: if signedIn() && notBanned() && resource.data.applicantUid == me()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['applicant', 'applicantDeleted', 'deletedAt', 'updatedAt'])
+                    && request.resource.data.applicant == {'fullName': 'Deleted user'}
+                    && request.resource.data.applicantDeleted == true
+                    && request.resource.data.deletedAt == request.time;
+      allow update: if signedIn() && notBanned() && resource.data.employerUid == me()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['employerName', 'employerDeleted', 'deletedAt', 'updatedAt'])
+                    && request.resource.data.employerName == 'Deleted user'
+                    && request.resource.data.employerDeleted == true
+                    && request.resource.data.deletedAt == request.time;
+
       // Messages between the applicant and the employer. Closes 48 hours after the applicant is declined.
       match /messages/{mid} {
         function app() { return get(/databases/$(database)/documents/applications/$(appId)).data; }
@@ -240,6 +254,7 @@ service cloud.firestore {
         allow read: if party() || isAdmin();
         allow create: if party() && notBanned()
                       && chatOpen()
+                      && app().get('applicantDeleted', false) != true && app().get('employerDeleted', false) != true
                       && request.resource.data.keys().hasOnly(['fromUid', 'text', 'createdAt', 'photo'])
                       && request.resource.data.fromUid == me()
                       // A message is text, or a small JPEG photo (stored inline) with optional text.
@@ -399,7 +414,7 @@ service cloud.firestore {
     // smsCodes, smsPhones and meta/sms (codes and daily limits) have no client access at all.
     match /phoneVerified/{uid} {
       allow read: if (signedIn() && me() == uid) || isAdmin();
-      allow delete: if isAdmin();
+      allow delete: if (signedIn() && me() == uid) || isAdmin();
     }
 
     // Employers an admin has checked (phone call, Facebook, business permit…). Public so the badge shows.
@@ -408,7 +423,7 @@ service cloud.firestore {
       allow create, update: if isAdmin()
                     && request.resource.data.keys().hasOnly(['at', 'by', 'method'])
                     && str(request.resource.data.method, 1, 60);
-      allow delete: if isAdmin();
+      allow delete: if (signedIn() && me() == uid) || isAdmin();
     }
 
     /* ---------- Job alert emails ----------
