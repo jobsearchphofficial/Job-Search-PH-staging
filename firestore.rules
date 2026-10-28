@@ -390,6 +390,13 @@ service cloud.firestore {
       allow delete: if (signedIn() && me() == uid) || isAdmin();
     }
 
+    // Mobile numbers confirmed by a texted code. Written only by the SMS helper (service account).
+    // smsCodes, smsPhones and meta/sms (codes and daily limits) have no client access at all.
+    match /phoneVerified/{uid} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
     // Employers an admin has checked (phone call, Facebook, business permit…). Public so the badge shows.
     match /verified/{uid} {
       allow read: if true;

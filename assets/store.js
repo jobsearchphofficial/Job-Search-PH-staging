@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS } from "./firebase-config.js?v=1793196096";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, SMS_URL } from "./firebase-config.js?v=1793200579";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -15,6 +15,10 @@ const emit = () => listeners.forEach((cb) => cb({ ...state }));
 export const onAuth = (cb) => { listeners.add(cb); if (state.ready) cb({ ...state }); return () => listeners.delete(cb); };
 export const getAuthState = () => ({ ...state });
 export const uploadsEnabled = RESUME_UPLOADS;
+const SMS = USE_EMULATORS ? "http://127.0.0.1:8787" : SMS_URL;
+export const smsEnabled = !!SMS;
+// Same rule as the SMS helper: 09XXXXXXXXX / 639XXXXXXXXX / +639XXXXXXXXX → +639XXXXXXXXX
+export const normPhone = (v) => { const m = String(v || "").replace(/\D/g, "").match(/^(?:0|63)?(9\d{9})$/); return m ? `+63${m[1]}` : null; };
 
 // Fields an employer submits for the public post. Contact details are stored privately.
 // Everything an employer may change when editing a post (keep in sync with firestore.rules).
@@ -154,6 +158,23 @@ export const store = {
     A.sendEmailVerification(cred.user, { url: `${location.origin}/#/profile` }).catch(() => {});
   },
   // Email confirmation for email + password accounts.
+  // Mobile number confirmation (text message code). phoneVerified/{uid} is written only by the SMS helper.
+  async phoneStatus() {
+    const u = auth.currentUser; if (!u) return null;
+    const d = await F.getDoc(F.doc(db, "phoneVerified", u.uid)).catch(() => null);
+    return d?.exists() ? norm(d) : null;
+  },
+  async phoneStatusFor(id) { const d = await F.getDoc(F.doc(db, "phoneVerified", id)).catch(() => null); return d?.exists() ? norm(d) : null; },
+  async sms(path, body = {}) {
+    if (!SMS) throw Object.assign(new Error("off"), { code: "off" });
+    const token = await auth.currentUser.getIdToken();
+    let res;
+    try { res = await fetch(`${SMS}/${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }); }
+    catch { throw Object.assign(new Error("We couldn't reach the texting service. Check your internet and try again."), { code: "network" }); }
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(out.message || (out.error === "wait" ? `Wait ${out.wait}s before asking again.` : "Something went wrong. Try again.")), { code: out.error || "error", wait: out.wait, status: res.status });
+    return out;
+  },
   async sendVerification() { await A.sendEmailVerification(auth.currentUser, { url: `${location.origin}/#/profile` }); },
   // After they click the link: refresh the account (and its token, which the database rules read).
   async refreshVerified() {

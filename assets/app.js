@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793196096";
-import { IS_STAGING } from "./firebase-config.js?v=1793196096";
-import { fitScore, rankApplicants } from "./match.js?v=1793196096";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793196096";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone } from "./store.js?v=1793200579";
+import { IS_STAGING } from "./firebase-config.js?v=1793200579";
+import { fitScore, rankApplicants } from "./match.js?v=1793200579";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793200579";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1413,6 +1413,16 @@ function viewProfile(focus) {
       <a class="btn ${st === "pending" ? "btn-ghost" : "btn-primary"} btn-sm" href="#/verify">${st === "pending" ? "See status" : st ? "Try again" : "Get verified"}</a>`;
   };
 
+  // Mobile number: confirmed, or a button to confirm it by text.
+  const paintPhone = async () => {
+    const st = await store.phoneStatus(); const box = $("#phone-card"); if (!box) return;
+    const prof = getAuthState().profile;
+    box.hidden = false;
+    if (phoneOk(st, prof)) { box.classList.add("ok"); box.innerHTML = `<div class="pc-head"><span class="pc-ico ok">✓</span><div><strong>Mobile number confirmed</strong><p class="small muted">${maskPhone(prof.phone)}. If you change your number, you'll confirm the new one.</p></div></div>`; return; }
+    box.classList.remove("ok");
+    phoneBox(box, { why: role === "employer" ? "You'll need this before posting a job." : "It shows employers your number is real.", onDone: paintPhone });
+  };
+
   const draw = () => {
     if (isNew && role) { try { const k = draftKey("role"); if (k) localStorage.setItem(k, role); } catch {} }
     const name = p.fullName || user.displayName || "";
@@ -1429,6 +1439,7 @@ function viewProfile(focus) {
           </div>
         </header>
         ${role && !isNew ? `<section class="verify-card" id="verify-card"></section>` : ""}
+        ${role && !isNew && smsEnabled ? `<section class="phone-card" id="phone-card" hidden></section>` : ""}
         ${isNew && !guided ? `<ol class="steps" aria-label="Progress"><li class="${step >= 1 ? "done" : ""} ${step === 1 ? "current" : ""}">Choose type</li><li class="${step === 2 ? "current" : ""}">Your details</li></ol>` : ""}
         ${guided ? `<div class="role-switch"><span class="role-now">${ICONS[role]}<span>${role === "employer" ? "Employer profile: post jobs and review applicants" : "Jobseeker profile: apply to jobs with one profile"}</span></span>
             <button type="button" class="linkbtn" data-role="${role === "employer" ? "jobseeker" : "employer"}">${role === "employer" ? "Looking for work instead?" : "Hiring instead?"}</button></div>`
@@ -1461,6 +1472,7 @@ function viewProfile(focus) {
     if (role) bindForm();
     bindConfirmEmail(() => viewProfile());
     if (role && !isNew) paintVerify();
+    if (role && !isNew && smsEnabled) paintPhone();
     if (profileFocus === "emails" && $("#pf-emails")) {
       profileFocus = "";
       history.replaceState(null, "", `${location.pathname}${location.search}#/profile`);
@@ -1588,6 +1600,81 @@ async function viewVerify() {
   });
 }
 
+/* ---------------- Confirm mobile number (6-digit code by text, via the SMS helper) ---------------- */
+const PHONE_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18h3"/></svg>`;
+const phoneOk = (st, profile) => !!(st && profile && st.phone && st.phone === normPhone(profile.phone));
+const maskPhone = (p) => { const n = normPhone(p); return n ? `0${n.slice(3, 6)} ••• ${n.slice(-4)}` : esc(p || ""); };
+// Draws the confirm-by-text flow into `box`. onDone() runs after a right code. onSkip (optional) shows
+// "Continue for now" when texts can't be sent (helper down, out of credit), so nobody gets stuck.
+function phoneBox(box, { why = "", onDone, onSkip } = {}) {
+  const { profile } = getAuthState();
+  let timer = null;
+  const stop = () => { if (timer) clearInterval(timer); timer = null; };
+  const start = () => {
+    stop();
+    box.innerHTML = `<div class="pc-head"><span class="pc-ico">${PHONE_SVG}</span><div><strong>Confirm your mobile number</strong>
+      <p class="small muted">${why ? `${esc(why)} ` : ""}We'll text a 6-digit code to <strong>${maskPhone(profile?.phone)}</strong>. <a href="#/profile">Wrong number?</a></p></div></div>
+      <p class="error" data-pc-err hidden></p>
+      <button class="btn btn-primary btn-sm" type="button" data-pc-send>Text me a code</button>`;
+    box.querySelector("[data-pc-send]").addEventListener("click", sendCode);
+  };
+  const fail = (msg, canSkip) => {
+    const e = box.querySelector("[data-pc-err]"); if (!e) return;
+    e.innerHTML = `${esc(msg)}${canSkip && onSkip ? ` <button type="button" class="linkbtn" data-pc-skip>Continue for now</button>` : ""}`; e.hidden = false;
+    box.querySelector("[data-pc-skip]")?.addEventListener("click", () => { stop(); onSkip(); });
+  };
+  const codeStep = (to) => {
+    box.innerHTML = `<div class="pc-head"><span class="pc-ico">${PHONE_SVG}</span><div><strong>Enter the code we texted you</strong>
+      <p class="small muted">Sent to <strong>${esc(to || maskPhone(profile?.phone))}</strong>. It can take a minute to arrive.</p></div></div>
+      <form class="pc-form" novalidate><input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="6-digit code" aria-label="6-digit code">
+      <button class="btn btn-primary btn-sm" type="submit">Confirm</button></form>
+      <p class="error" data-pc-err hidden></p>
+      <p class="small muted pc-again"><button type="button" class="linkbtn" data-pc-resend disabled>Send a new code</button> <span data-pc-wait></span></p>`;
+    const inp = box.querySelector("[name=code]"); inp.focus();
+    inp.addEventListener("input", () => { inp.value = inp.value.replace(/\D/g, "").slice(0, 6); box.querySelector("[data-pc-err]").hidden = true; if (inp.value.length === 6) box.querySelector(".pc-form").requestSubmit(); });
+    box.querySelector(".pc-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (inp.value.length !== 6) return fail("Enter the 6-digit code.");
+      const b = box.querySelector(".pc-form button"); b.disabled = true; b.textContent = "Checking…";
+      try { await store.sms("verify", { code: inp.value }); stop(); toast("Mobile number confirmed"); onDone?.(); }
+      catch (ex) { b.disabled = false; b.textContent = "Confirm"; inp.select(); fail(ex.message); }
+    });
+    box.querySelector("[data-pc-resend]").addEventListener("click", sendCode);
+    countdown(60);
+  };
+  const countdown = (n) => {
+    stop();
+    const btn = box.querySelector("[data-pc-resend]"), w = box.querySelector("[data-pc-wait]"); if (!btn) return;
+    btn.disabled = true;
+    const tick = () => { if (!box.isConnected) return stop(); if (n <= 0) { stop(); btn.disabled = false; w.textContent = ""; return; } w.textContent = `in ${n}s`; n--; };
+    tick(); timer = setInterval(tick, 1000);
+  };
+  async function sendCode(e) {
+    const b = e?.currentTarget; if (b) { b.disabled = true; b.dataset.label = b.textContent; b.textContent = "Sending…"; }
+    try {
+      const r = await store.sms("send");
+      if (r.already) { toast("Your number is already confirmed"); return onDone?.(); }
+      codeStep(r.to);
+    } catch (ex) {
+      if (b) { b.disabled = false; b.textContent = b.dataset.label; }
+      if (ex.code === "wait" && box.querySelector(".pc-form")) { countdown(ex.wait || 60); return; }
+      if (ex.code === "wait") { codeStep(); countdown(ex.wait || 60); return; }
+      fail(ex.message, ["send_failed", "busy", "network", "server", "limit"].includes(ex.code));
+    }
+  }
+  start();
+  return { stop };
+}
+
+// Admin: mark which employers confirmed their number by text (placeholders: data-phonechk="<uid>").
+async function fillPhoneChecks() {
+  const els = [...document.querySelectorAll("[data-phonechk]:not([data-done])")]; if (!els.length) return;
+  els.forEach((el) => (el.dataset.done = "1"));
+  const ids = [...new Set(els.map((el) => el.dataset.phonechk))];
+  const res = Object.fromEntries(await Promise.all(ids.map(async (id) => [id, await store.phoneStatusFor(id)])));
+  els.forEach((el) => { const st = res[el.dataset.phonechk]; el.innerHTML = st && st.phone === normPhone(el.dataset.num) ? `<span class="badge badge-approved">Confirmed by text</span>` : `<span class="badge badge-closed">Not confirmed</span>`; });
+}
+
 // "Confirm your email" box for email + password accounts that haven't clicked the link yet.
 function confirmEmailBox(why) {
   const { user } = getAuthState();
@@ -1607,6 +1694,7 @@ function bindConfirmEmail(onDone) {
   });
 }
 
+let phoneSkip = false; // texts couldn't be sent this visit, so posting isn't blocked
 async function viewPost(editId = null) {
   document.title = `${editId ? "Edit post" : "Post a job"} | Job Search PH`;
   const { user, profile } = getAuthState();
@@ -1619,6 +1707,16 @@ async function viewPost(editId = null) {
     app.innerHTML = `<div class="page-head"><div><p class="kicker">New job post</p><h1>Post a job</h1></div></div>${confirmEmailBox("We ask every employer to do this once before posting, so jobseekers know posts come from real people.")}`;
     bindConfirmEmail(() => viewPost());
     return;
+  }
+  // Employers confirm their mobile number once (text message code) before their first post.
+  if (!editId && smsEnabled && profile.role === "employer" && !getAuthState().isAdmin && !phoneSkip) {
+    const st = await store.phoneStatus();
+    if (location.hash !== "#/post") return;
+    if (!phoneOk(st, profile)) {
+      app.innerHTML = `<div class="page-head"><div><p class="kicker">New job post</p><h1>Post a job</h1></div></div><section class="phone-card" id="phone-gate"></section>`;
+      phoneBox($("#phone-gate"), { why: "We ask every employer to do this once, so jobseekers know posts come from real people.", onDone: () => viewPost(), onSkip: () => { phoneSkip = true; viewPost(); } });
+      return;
+    }
   }
   if (profile.role !== "employer") {
     returnTo = "#/post";
@@ -2524,7 +2622,7 @@ async function viewAdminUser(id) {
   if (!isAdmin) { app.innerHTML = `<div class="empty"><h1>Not authorized</h1></div>`; return; }
   app.innerHTML = SK.rows(5);
   let d;
-  try { d = await store.adminUser(id); } catch (e) { console.error(e); app.innerHTML = `<div class="empty"><p>Couldn't load this user (${esc(e.code || e.message)}).</p></div>`; return; }
+  try { d = await store.adminUser(id); d.phoneCheck = await store.phoneStatusFor(id); } catch (e) { console.error(e); app.innerHTML = `<div class="empty"><p>Couldn't load this user (${esc(e.code || e.message)}).</p></div>`; return; }
   const u = d.user;
   if (!u) { app.innerHTML = `<div class="empty"><h1>User not found</h1><p class="muted">They may have deleted their profile.</p><p><a class="btn btn-ghost" href="#/admin/users">Back to users</a></p></div>`; return; }
   const ban = d.ban; const isSeeker = u.role === "jobseeker";
@@ -2532,7 +2630,7 @@ async function viewAdminUser(id) {
   const m = messengerUrl(u.messenger);
   const live = d.posts.filter((j) => isLive(j));
   const facts = [
-    fact("Email", u.email ? `<a href="mailto:${esc(u.email)}">${esc(u.email)}</a>` : ""), fact("Phone", u.phone ? `<span class="copyable">${esc(u.phone)}</span>` : ""),
+    fact("Email", u.email ? `<a href="mailto:${esc(u.email)}">${esc(u.email)}</a>` : ""), fact("Phone", u.phone ? `<span class="copyable">${esc(u.phone)}</span>${d.phoneCheck ? (d.phoneCheck.phone === normPhone(u.phone) ? ` <span class="badge badge-approved">Confirmed by text</span>` : ` <span class="badge badge-pending">Changed since confirmed</span>`) : smsEnabled ? ` <span class="badge badge-closed">Not confirmed</span>` : ""}` : ""),
     fact("Messenger", m ? `<a href="${esc(m)}" target="_blank" rel="noopener nofollow">${esc(u.messenger)}</a>` : ""), fact("City", esc(u.city || "")),
     fact("Joined", u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : ""),
     fact("Last updated", u.updatedAt ? ago(u.updatedAt) : ""),
@@ -2925,7 +3023,7 @@ async function viewAdmin() {
         ${o ? `<dl class="ec-facts">
           ${row("Account", `${esc(o.fullName || "")}${o.companyName ? ` · ${esc(o.companyName)}` : ""} ${founderBadge(o.id, "employer", { short: true })}`)}
           ${row("Joined", o.createdAt ? `${new Date(o.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} (${ago(o.createdAt)})` : "")}
-          ${row("Phone", o.phone ? `<a href="tel:${esc(digits(o.phone))}">${esc(o.phone)}</a>` : "")}
+          ${row("Phone", o.phone ? `<a href="tel:${esc(digits(o.phone))}">${esc(o.phone)}</a>${smsEnabled ? ` <span data-phonechk="${esc(o.id)}" data-num="${esc(o.phone)}"></span>${(setTimeout(fillPhoneChecks, 0), "")}` : ""}` : "")}
           ${row("Email", o.email ? `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a> <span class="muted small">${o.signIn === "google" ? "· Google account" : o.signIn === "facebook" ? "· Facebook account" : o.signIn === "password" ? (o.emailVerified ? "· confirmed" : "· not confirmed") : ""}</span>` : "")}
           ${row("Facebook", fb ? `<a href="${esc(fb)}" target="_blank" rel="noopener nofollow">${esc(fb.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : "")}
           ${row("Messenger", m ? `<a href="${esc(m)}" target="_blank" rel="noopener nofollow">${esc(o.messenger)}</a>` : "")}

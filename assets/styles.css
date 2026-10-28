@@ -1130,3 +1130,16 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .vp-track li.now::before { border-color: var(--indigo); box-shadow: 0 0 0 4px var(--indigo-soft); }
 .vp-track span { color: var(--slate); font-size: .88rem; }
 @media (max-width: 860px) { .vp-grid { grid-template-columns: 1fr; } .vp-side { position: static; order: -1; } }
+
+/* Confirm mobile number by text */
+.phone-card { border: 1px solid var(--soft-line); background: var(--card); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; display: grid; gap: 10px; max-width: 779px; box-sizing: border-box; }
+.phone-card.ok { background: var(--green-soft, #f0fdf4); }
+.pc-head { display: flex; gap: 10px; align-items: flex-start; }
+.pc-head p { margin: 2px 0 0; }
+.pc-ico { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--indigo-soft); color: var(--indigo, #3d4fd6); }
+.pc-ico.ok { background: var(--green, #15803d); color: #fff; font-weight: 700; }
+.phone-card > .btn { justify-self: start; }
+.pc-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.pc-form input { width: 11ch; font-size: 1.25rem; letter-spacing: .25em; text-align: center; font-variant-numeric: tabular-nums; }
+.pc-again { margin: 0; }
+.phone-card .error { margin: 0; }
