@@ -201,6 +201,11 @@ async function main() {
     jobs = fx.jobs.map((j) => ({ ...j, approvedAt: rel(j.approvedAt), expiresAt: rel(j.expiresAt) }));
     users = fx.users; state = (fx.alertState || []).map((s) => ({ ...s, lastSentAt: rel(s.lastSentAt) })); bans = fx.bans || []; unsubs = fx.unsubscribes || [];
   } else {
+    // Not set up yet (no secrets at all): skip quietly instead of failing every day.
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT && !process.env.RESEND_API_KEY) {
+      console.log("Job alerts aren't set up yet: add the FIREBASE_SERVICE_ACCOUNT and RESEND_API_KEY secrets. Skipping.");
+      return;
+    }
     if (!DRY && !process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY secret is missing.");
     await auth();
     unsubs = await query("unsubscribes");
