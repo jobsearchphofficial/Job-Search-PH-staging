@@ -72,7 +72,7 @@ service cloud.firestore {
         && optStr(d.get('jobCategoryOther', null), 40)
         && optStr(d.get('fbUrl', null), 200)
         && optStr(d.get('bizReg', null), 60)
-        && (d.get('signIn', null) == null || d.signIn in ['', 'google', 'password'])
+        && (d.get('signIn', null) == null || d.signIn in ['', 'google', 'password', 'facebook'])
         && (d.get('emailVerified', null) == null || d.emailVerified is bool)
         // Job alert emails (opt-in). The token is the secret in the unsubscribe link.
         && (d.get('alerts', null) == null || d.alerts is bool)

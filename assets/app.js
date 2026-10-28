@@ -1,5 +1,5 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793122887";
-import { IS_STAGING } from "./firebase-config.js?v=1793122887";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793180680";
+import { IS_STAGING } from "./firebase-config.js?v=1793180680";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -51,6 +51,7 @@ const STATUS_LABEL = { pending: "Under review", approved: "Live", rejected: "Rej
 const APP_STATUS = { new: "Sent", shortlisted: "Shortlisted", offered: "Job offer", not_selected: "Not selected", offer_declined: "Offer declined", hired: "Hired" };
 const DECLINED = ["not_selected", "offer_declined"];
 const CAN_SMS = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const FB_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="#1877F2" d="M24 12a12 12 0 1 0-13.9 11.9v-8.4H7.1V12h3V9.4c0-3 1.8-4.7 4.5-4.7 1.3 0 2.7.2 2.7.2v2.9h-1.5c-1.5 0-2 .9-2 1.9V12h3.4l-.5 3.5h-2.9v8.4A12 12 0 0 0 24 12z"/><path fill="#fff" d="m16.7 15.5.5-3.5h-3.4V9.7c0-1 .5-1.9 2-1.9h1.5V4.9s-1.4-.2-2.7-.2c-2.7 0-4.5 1.6-4.5 4.7V12h-3v3.5h3v8.4a12 12 0 0 0 3.7 0v-8.4h2.9z"/></svg>`;
 const IN_APP_BROWSER = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\//i.test(navigator.userAgent);
 
 /* ---------------- Wages, work conditions, places ---------------- */
@@ -449,8 +450,14 @@ function authError(err) {
     "auth/wrong-password": "Wrong email or password.",
     "auth/user-not-found": "No account with that email. Create one instead.",
     "auth/too-many-requests": "Too many tries. Wait a few minutes and try again.",
-    "auth/popup-closed-by-user": "The Google window was closed before signing in.",
-    "auth/popup-blocked": "Your browser blocked the Google window. Allow pop-ups or use email instead.",
+    "auth/popup-closed-by-user": "The sign-in window was closed before signing in.",
+    "auth/popup-blocked": "Your browser blocked the sign-in window. Allow pop-ups or use email instead.",
+    "auth/cancelled-popup-request": "The sign-in window was closed before signing in.",
+    "auth/account-exists-with-different-credential": "You already have an account with this email. Sign in with Google or email first, then connect Facebook in My profile.",
+    "auth/credential-already-in-use": "That Facebook account is already used by another Job Search PH account.",
+    "auth/provider-already-linked": "Facebook is already connected to your account.",
+    "auth/requires-recent-login": "For your safety, sign out and sign in again, then try once more.",
+    "last-method": "You need at least one other way to sign in before removing Facebook.",
     "auth/operation-not-allowed": "This sign-in method isn't turned on yet.",
     "auth/unauthorized-domain": "This website address isn't allowed for sign-in yet.",
     "auth/network-request-failed": "No internet connection. Check your connection and try again.",
@@ -1052,10 +1059,14 @@ function viewSignIn() {
         <div class="auth-card">
           <h1>${mode === "signup" ? "Create your free account" : esc(signInPurpose || "Sign in")}</h1>
           <p class="muted">${mode === "signup" ? "For jobseekers and employers. It's free." : "Sign in to apply for jobs or manage your posts."}</p>
-          ${IN_APP_BROWSER ? `<p class="notice small">You opened this inside Facebook or Messenger, which blocks Google sign-in. Use email below, or tap ⋯ and choose <strong>Open in browser</strong>.</p>` : ""}
+          ${IN_APP_BROWSER ? `<p class="notice small">You opened this inside Facebook or Messenger, which blocks Google sign-in. Use <strong>Continue with Facebook</strong> or email below, or tap ⋯ and choose <strong>Open in browser</strong>.</p>` : ""}
           <button class="btn btn-ghost btn-block btn-google" id="google" ${IN_APP_BROWSER ? "disabled" : ""}>
             <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
             Continue with Google
+          </button>
+          <button class="btn btn-ghost btn-block btn-google" id="facebook">
+            ${FB_ICON.replace('width="16" height="16"', 'width="18" height="18"')}
+            Continue with Facebook
           </button>
           <div class="divider"><span>or use email</span></div>
           <form id="email-form" class="auth-form" novalidate>
@@ -1072,6 +1083,8 @@ function viewSignIn() {
     const err = (m) => { const el = $("#auth-error"); el.textContent = m; el.hidden = !m; };
     $("#toggle").addEventListener("click", () => { mode = mode === "signup" ? "signin" : "signup"; draw(); });
     $("#google").addEventListener("click", async () => { try { await store.signInGoogle(); } catch (e) { err(authError(e)); } });
+    $("#facebook").addEventListener("click", async () => { try { await store.signInFacebook({ redirect: IN_APP_BROWSER }); } catch (e) { err(authError(e)); } });
+    store.redirectError().then((e) => { if (e) err(authError(e)); });
     $("#forgot")?.addEventListener("click", async () => {
       const email = $("#s-email").value.trim();
       if (!email) return err("Type your email above first, then tap Forgot password.");
@@ -1164,6 +1177,13 @@ function viewProfile() {
         <label>Resume link (optional)<input name="resumeUrl" type="url" maxlength="500" placeholder="https://drive.google.com/…" value="${esc(p.resumeUrl)}"><span class="hint">A Google Drive or other link. Set sharing to "Anyone with the link".</span></label>
         ${uploadsEnabled ? `<label>Upload resume (optional)<input name="resumeFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp"><span class="hint">PDF or photo, up to 5 MB.${p.resumeFileName ? ` Current file: <a href="${esc(p.resumeFileUrl)}" target="_blank" rel="noopener">${esc(p.resumeFileName)}</a>` : ""}</span></label>` : ""}
       </fieldset>` : ""}
+      ${!isNew ? (() => { const fbOn = store.providers().includes("facebook.com"); return `
+      <fieldset>
+        <legend>Sign-in methods</legend>
+        <div class="fb-link"><span>${FB_ICON} Facebook: <strong>${fbOn ? "Connected" : "Not connected"}</strong></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="fb-link" data-on="${fbOn ? 1 : 0}">${fbOn ? "Remove" : "Connect Facebook"}</button></div>
+        <span class="hint">${fbOn ? "You can sign in with Facebook or your other method." : "Sign in faster with Facebook next time. We never post anything to your Facebook."}</span>
+      </fieldset>`; })() : ""}
       <label class="check"><input type="checkbox" name="consent" ${profile?.consent ? "checked" : ""}>
         <span>${role === "jobseeker" ? "I agree that my profile is shared with employers when I apply to their jobs." : "I agree to only post real jobs and to use applicants' details only for hiring."} I accept the <a href="#/terms" target="_blank">Terms</a> and <a href="#/privacy" target="_blank">Privacy notice</a>.</span></label>
       <p id="form-error" class="error" hidden></p>
@@ -1214,6 +1234,13 @@ function viewProfile() {
     f.birthDate?.addEventListener("input", () => {
       const a = ageFrom(f.birthDate.value); const out = $("#age-out");
       out.textContent = a == null ? "Age" : `${a} years old`; out.classList.toggle("bad", a != null && a < 18);
+    });
+    $("#fb-link")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget; const on = b.dataset.on === "1";
+      if (on && !confirmInline(b, "Click again to remove")) return;
+      b.disabled = true;
+      try { if (on) await store.unlinkFacebook(); else await store.linkFacebook(); toast(on ? "Facebook removed" : "Facebook connected"); viewProfile(); }
+      catch (ex) { b.disabled = false; toast(authError(ex)); }
     });
     $("#del-profile")?.addEventListener("click", async (e) => {
       if (!confirmInline(e.target, "Click again to delete")) return;
@@ -2212,7 +2239,7 @@ async function viewAdminUser(id) {
       : [fact("Household / business", esc(u.companyName || "")), fact("Job posts", `${d.posts.length} total · ${live.length} live`),
         fact("Facebook", fbHref(u.fbUrl) ? `<a href="${esc(fbHref(u.fbUrl))}" target="_blank" rel="noopener nofollow">${esc(fbHref(u.fbUrl).replace(/^https?:\/\/(www\.)?/, ""))}</a>` : ""),
         fact("Permit / DTI", esc(u.bizReg || ""))]),
-    fact("Signs in with", u.signIn === "google" ? "Google" : u.signIn === "password" ? `Email &amp; password${u.emailVerified ? " (confirmed)" : " (not confirmed)"}` : ""),
+    fact("Signs in with", u.signIn === "google" ? "Google" : u.signIn === "facebook" ? "Facebook" : u.signIn === "password" ? `Email &amp; password${u.emailVerified ? " (confirmed)" : " (not confirmed)"}` : ""),
     fact("User ID", `<span class="copyable small">${esc(u.id)}</span>`),
   ];
   const appRow = (a, who) => `<li><a href="#/job/${encodeURIComponent(a.jobId)}">${esc(a.jobTitle)}</a><span class="muted small">${who} · ${ago(a.createdAt)}</span>${appBadge(a.status, true)}</li>`;
@@ -2557,7 +2584,7 @@ async function viewAdmin() {
           ${row("Account", `${esc(o.fullName || "")}${o.companyName ? ` · ${esc(o.companyName)}` : ""} ${founderBadge(o.id, "employer", { short: true })}`)}
           ${row("Joined", o.createdAt ? `${new Date(o.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} (${ago(o.createdAt)})` : "")}
           ${row("Phone", o.phone ? `<a href="tel:${esc(digits(o.phone))}">${esc(o.phone)}</a>` : "")}
-          ${row("Email", o.email ? `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a> <span class="muted small">${o.signIn === "google" ? "· Google account" : o.signIn === "password" ? (o.emailVerified ? "· confirmed" : "· not confirmed") : ""}</span>` : "")}
+          ${row("Email", o.email ? `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a> <span class="muted small">${o.signIn === "google" ? "· Google account" : o.signIn === "facebook" ? "· Facebook account" : o.signIn === "password" ? (o.emailVerified ? "· confirmed" : "· not confirmed") : ""}</span>` : "")}
           ${row("Facebook", fb ? `<a href="${esc(fb)}" target="_blank" rel="noopener nofollow">${esc(fb.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : "")}
           ${row("Messenger", m ? `<a href="${esc(m)}" target="_blank" rel="noopener nofollow">${esc(o.messenger)}</a>` : "")}
           ${row("Permit / DTI", esc(o.bizReg || ""))}

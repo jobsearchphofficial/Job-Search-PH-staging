@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS } from "./firebase-config.js?v=1793122887";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS } from "./firebase-config.js?v=1793180680";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -116,6 +116,27 @@ export const store = {
 
   /* ---- Auth ---- */
   async signInGoogle() { await A.signInWithPopup(auth, new A.GoogleAuthProvider()); },
+  // Facebook: popup normally; full-page redirect inside the Facebook/Messenger app, where popups don't work.
+  async signInFacebook({ redirect = false } = {}) {
+    const fb = new A.FacebookAuthProvider(); fb.addScope("email");
+    if (redirect) return A.signInWithRedirect(auth, fb);
+    await A.signInWithPopup(auth, fb);
+  },
+  // Errors from a redirect sign-in show up on the next page load.
+  async redirectError() { try { await A.getRedirectResult(auth); return null; } catch (e) { return e; } },
+  // Which sign-in methods this account has: ["google.com", "facebook.com", "password"].
+  providers() { return (auth.currentUser?.providerData || []).map((p) => p.providerId); },
+  async linkFacebook() {
+    const fb = new A.FacebookAuthProvider(); fb.addScope("email");
+    await A.linkWithPopup(auth.currentUser, fb);
+    await auth.currentUser.reload();
+    if (state.profile) await this.saveProfile({}).catch(() => {}); // refresh "signs in with" on the profile
+  },
+  async unlinkFacebook() {
+    if (this.providers().length < 2) throw Object.assign(new Error("last-method"), { code: "last-method" });
+    await A.unlink(auth.currentUser, "facebook.com");
+    if (state.profile) await this.saveProfile({}).catch(() => {});
+  },
   async signInEmail(email, pw) { await A.signInWithEmailAndPassword(auth, email, pw); },
   async signUpEmail(email, pw, name) {
     const cred = await A.createUserWithEmailAndPassword(auth, email, pw);
@@ -129,7 +150,8 @@ export const store = {
     const ref = F.doc(db, "users", uid());
     const exists = !!state.profile;
     const cu = auth.currentUser;
-    const signIn = cu?.providerData?.some((p) => p.providerId === "google.com") ? "google" : cu?.providerData?.some((p) => p.providerId === "password") ? "password" : "";
+    const has = (id) => cu?.providerData?.some((p) => p.providerId === id);
+    const signIn = has("google.com") ? "google" : has("facebook.com") ? "facebook" : has("password") ? "password" : "";
     const payload = { ...data, consent: true, email: cu?.email || "", signIn, emailVerified: !!cu?.emailVerified, updatedAt: F.serverTimestamp() };
     if (!exists) { payload.createdAt = F.serverTimestamp(); const src = visitSource(); if (src) payload.src = src; }
     try { await F.setDoc(ref, payload, { merge: true }); }
