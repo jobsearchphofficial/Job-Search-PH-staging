@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793195617";
-import { IS_STAGING } from "./firebase-config.js?v=1793195617";
-import { fitScore, rankApplicants } from "./match.js?v=1793195617";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793195617";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS } from "./store.js?v=1793196096";
+import { IS_STAGING } from "./firebase-config.js?v=1793196096";
+import { fitScore, rankApplicants } from "./match.js?v=1793196096";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793196096";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -152,7 +152,7 @@ const STRENGTH_ITEMS = [
   { k: "workHistory", pts: 15, todo: "Add your work history", done: (p) => String(p.workHistory || "").trim().length >= 20 },
   { k: "education", pts: 10, todo: "Add your education", done: (p) => String(p.education || "").trim().length >= 4 },
   { k: "gender", pts: 5, todo: "Choose your gender", done: (p) => !!p.gender },
-  { k: "messenger", pts: 5, todo: "Add your Messenger", done: (p) => !!String(p.messenger || "").trim() },
+  { k: "messenger", pts: 5, todo: "Add your Facebook profile", done: (p) => !!String(p.messenger || "").trim() },
   { k: "resumeUrl", pts: 5, todo: "Add a resume link", done: (p) => !!String(p.resumeUrl || p.resumeFileUrl || "").trim() },
 ];
 function profileStrength(p = {}) {
@@ -1195,7 +1195,7 @@ function viewProfile(focus) {
         <div class="row">
           ${role === "jobseeker" ? `<label>Birthdate *<span class="date-age"><input name="birthDate" type="date" required max="${maxBirth}" value="${esc(p.birthDate)}"><output id="age-out" class="age-pill">${ageFrom(p.birthDate) != null ? `${ageFrom(p.birthDate)} years old` : "Age"}</output></span><span class="hint">You must be at least 18. Employers see your age, not your birthdate.</span></label>`
             : `<label>Household or business name<input name="companyName" maxlength="100" placeholder="e.g. Reyes Family or Inasal Express" value="${esc(p.companyName)}"></label>`}
-          ${role === "jobseeker" ? `<label>Messenger (optional)<input name="messenger" maxlength="100" placeholder="Username or m.me link" value="${esc(p.messenger)}"></label>` : ""}
+          ${role === "jobseeker" ? `<label>Facebook profile (optional)<input name="messenger" type="url" inputmode="url" maxlength="100" placeholder="https://facebook.com/yourname" value="${esc(p.messenger)}"><span class="hint">Employers can message you on Messenger from this.</span></label>` : ""}
         </div>
         ${role === "jobseeker" ? `<div><span class="label">Gender</span><div class="pills tight" role="radiogroup">${["Male", "Female", "Other"].map((g) => `<label class="pill"><input type="radio" name="gender" value="${g}" ${p.gender === g ? "checked" : ""}><span>${g}</span></label>`).join("")}</div></div>` : ""}
       </fieldset>
@@ -1325,7 +1325,8 @@ function viewProfile(focus) {
       const ph = digits(phone).replace(/^\+/, "");
       if (ph.length < 10 || ph.length > 13) return fail("Enter a complete mobile number, e.g. 0917 123 4567.", f.phone);
       if (!p.city) return fail("Choose your city or municipality.", f.city);
-      if (p.messenger && !messengerUrl(p.messenger)) return fail("That Messenger username or link doesn't look right.", f.messenger);
+      if (p.messenger && !/^https?:\/\//i.test(p.messenger) && /facebook\.com|fb\.com|m\.me/i.test(p.messenger)) p.messenger = `https://${p.messenger.trim()}`;
+      if (p.messenger && !messengerUrl(p.messenger)) return fail("That Facebook link doesn't look right. It should look like https://facebook.com/yourname", f.messenger);
       const data = { role, fullName, phone, city: p.city, messenger: (p.messenger || "").trim(), photo: p.photo || "" };
       if (role === "jobseeker") {
         const age = ageFrom(p.birthDate);
@@ -2026,7 +2027,7 @@ function applicantCard(a, { top = false, readOnly = false } = {}) {
   const facts = [
     ["Phone", x.phone ? `<span class="copyable">${esc(x.phone)}</span>` : ""],
     ["Email", x.email ? `<a href="mailto:${esc(x.email)}">${esc(x.email)}</a>` : ""],
-    ["Messenger", m ? `<a href="${esc(m)}" target="_blank" rel="noopener nofollow">${esc(String(x.messenger).replace(/^https?:\/\/(www\.)?/, ""))}</a>` : ""],
+    ["Facebook", m ? `<a href="${esc(m)}" target="_blank" rel="noopener nofollow">Message on Messenger</a>` : ""],
     ["Lives in", esc(x.city || "")],
     ["Experience", exp],
     ["Can start", esc(x.availability || "")],
