@@ -36,3 +36,6 @@ export const LISTING_DAYS = 30;
 // Resume file uploads need Firebase Storage, which requires the Blaze plan.
 // Turn this on after creating the Storage bucket and publishing storage.rules.
 export const RESUME_UPLOADS = false;
+// "Continue with Facebook". Turn on only after the Facebook app is set up and the Facebook
+// provider is enabled in this site's Firebase project (Authentication → Sign-in method).
+export const FB_LOGIN = { staging: false, live: false }[IS_STAGING ? "staging" : "live"];

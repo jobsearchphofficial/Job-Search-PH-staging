@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793263000";
-import { IS_STAGING } from "./firebase-config.js?v=1793263000";
-import { fitScore, rankApplicants } from "./match.js?v=1793263000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793263000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793264000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793264000";
+import { fitScore, rankApplicants } from "./match.js?v=1793264000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793264000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1246,15 +1246,15 @@ function viewSignIn() {
             ${["jobseeker", "employer"].map((k) => `<label class="su-opt"><input type="radio" name="su-role" value="${k}" ${su.role === k ? "checked" : ""}>
               <span>${ROLE_ICONS[k]}<strong>${k === "jobseeker" ? "I'm looking for work" : "I'm hiring"}</strong><em>${k === "jobseeker" ? "Kasambahay, yaya, driver, cook…" : "Household or business"}</em></span></label>`).join("")}
           </div>` : ""}
-          ${IN_APP_BROWSER ? `<p class="notice small">You opened this inside Facebook or Messenger, which blocks Google sign-in. Use <strong>Continue with Facebook</strong> or email below, or tap ⋯ and choose <strong>Open in browser</strong>.</p>` : ""}
+          ${IN_APP_BROWSER ? `<p class="notice small">You opened this inside Facebook or Messenger, which blocks Google sign-in. Use ${FB_LOGIN ? "<strong>Continue with Facebook</strong> or " : ""}email below, or tap ⋯ and choose <strong>Open in browser</strong>.</p>` : ""}
           <button class="btn btn-ghost btn-block btn-google" id="google" ${IN_APP_BROWSER ? "disabled" : ""}>
             <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
             Continue with Google
           </button>
-          <button class="btn btn-ghost btn-block btn-google" id="facebook">
+          ${FB_LOGIN ? `<button class="btn btn-ghost btn-block btn-google" id="facebook">
             ${FB_ICON.replace('width="16" height="16"', 'width="18" height="18"')}
             Continue with Facebook
-          </button>
+          </button>` : ""}
           <div class="divider"><span>or use email</span></div>
           <form id="email-form" class="auth-form" novalidate>
             ${up ? nameFields(su, { labels: false }) : ""}
@@ -1274,7 +1274,7 @@ function viewSignIn() {
     app.querySelectorAll("[name=su-role]").forEach((r) => r.addEventListener("change", () => { keep(); signupIntent = su.role; err(""); draw(); }));
     const social = async (fn) => { keep(); if (up && su.role) signupIntent = su.role; try { await fn(); } catch (e) { err(authError(e)); } };
     $("#google").addEventListener("click", () => social(() => store.signInGoogle()));
-    $("#facebook").addEventListener("click", () => social(() => store.signInFacebook({ redirect: IN_APP_BROWSER })));
+    $("#facebook")?.addEventListener("click", () => social(() => store.signInFacebook({ redirect: IN_APP_BROWSER })));
     store.redirectError().then((e) => { if (e) err(authError(e)); });
     $("#s-birth")?.addEventListener("input", (e) => {
       const n = ageFrom(e.target.value); const out = $("#su-age");
@@ -1401,7 +1401,7 @@ function viewProfile(focus) {
         <label>Resume link (optional)<input name="resumeUrl" type="url" maxlength="500" placeholder="https://drive.google.com/…" value="${esc(p.resumeUrl)}"><span class="hint">A Google Drive or other link. Set sharing to "Anyone with the link".</span></label>
         ${uploadsEnabled ? `<label>Upload resume (optional)<input name="resumeFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp"><span class="hint">PDF or photo, up to 5 MB.${p.resumeFileName ? ` Current file: <a href="${esc(p.resumeFileUrl)}" target="_blank" rel="noopener">${esc(p.resumeFileName)}</a>` : ""}</span></label>` : ""}
       </fieldset>` : ""}
-      ${!isNew ? (() => { const fbOn = store.providers().includes("facebook.com"); return `
+      ${!isNew && (FB_LOGIN || store.providers().includes("facebook.com")) ? (() => { const fbOn = store.providers().includes("facebook.com"); return `
       <fieldset>
         <legend>Sign-in methods</legend>
         <div class="fb-link"><span>${FB_ICON} Facebook: <strong>${fbOn ? "Connected" : "Not connected"}</strong></span>
