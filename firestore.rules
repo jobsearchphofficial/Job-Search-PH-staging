@@ -410,6 +410,22 @@ service cloud.firestore {
       allow delete: if (signedIn() && me() == uid) || isAdmin();
     }
 
+    // Visits from tracked links (?src=…): one counter per link per day. Anyone can add 1; only admins read.
+    match /visits/{id} {
+      allow read, delete: if isAdmin();
+      allow create: if id == request.resource.data.src + '__' + request.resource.data.day
+                    && request.resource.data.keys().hasOnly(['src', 'day', 'n'])
+                    && request.resource.data.src is string && request.resource.data.src.matches('[a-z0-9._-]{1,40}')
+                    && request.resource.data.day is string && request.resource.data.day.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+                    && request.resource.data.n == 1;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['n'])
+                    && request.resource.data.n == resource.data.n + 1;
+    }
+    // Tracked links and ad campaigns (name, who it's for, where it's posted, spend). Admins only.
+    match /campaigns/{src} {
+      allow read, write: if isAdmin();
+    }
+
     // Mobile numbers confirmed by a texted code. Written only by the SMS helper (service account).
     // smsCodes, smsPhones and meta/sms (codes and daily limits) have no client access at all.
     match /phoneVerified/{uid} {

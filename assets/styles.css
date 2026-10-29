@@ -1162,3 +1162,22 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .da-card h1, .da-card > p.muted:first-of-type, .da-card .ce-ico { text-align: center; }
 .da-list { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 8px; font-size: .95rem; }
 .danger-link { color: var(--red, #c0392b); margin-left: auto; }
+
+/* Admin → Analytics: ads & tracked links */
+.cmp-list { display: grid; gap: 12px; margin-bottom: 14px; }
+.cmp { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm); }
+.cmp.direct { background: transparent; box-shadow: none; border-style: dashed; }
+.cmp header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.cmp header strong { font-size: 1rem; overflow-wrap: anywhere; }
+.cmp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.cmp-tags span { font-size: .75rem; color: var(--slate); background: var(--bg); border: 1px solid var(--line-soft); border-radius: 999px; padding: 2px 8px; }
+.cmp-actions { display: flex; gap: 12px; }
+.cmp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px 14px; margin-top: 12px; }
+.cmp-stat { display: grid; gap: 2px; align-content: start; min-width: 0; }
+.cmp-stat span { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--slate-soft); }
+.cmp-stat strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.cmp-stat em { font-style: normal; font-size: .78rem; color: var(--slate); }
+.cmp-spend { width: 100%; max-width: 120px; padding: 6px 8px; font-size: 1rem; border-radius: 8px; }
+.cmp-make .cmp-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; margin-top: 10px; }
+.cmp-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.an-tiles + .cmp-list { margin-top: 12px; }

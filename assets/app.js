@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793253601";
-import { IS_STAGING } from "./firebase-config.js?v=1793253601";
-import { fitScore, rankApplicants } from "./match.js?v=1793253601";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793253601";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793254020";
+import { IS_STAGING } from "./firebase-config.js?v=1793254020";
+import { fitScore, rankApplicants } from "./match.js?v=1793254020";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793254020";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -535,6 +535,7 @@ let returnTo = null;
 let signInPurpose = "";
 let pendingName = "";
 let signupIntent = "";
+let startSignup = false; // #/join/… links open the "Create account" form first
 function goSignIn(purpose, intent) {
   returnTo = location.hash || "#/";
   if (intent) signupIntent = intent;
@@ -543,6 +544,7 @@ function goSignIn(purpose, intent) {
   location.hash = "#/signin";
 }
 function finishAuthFlow() {
+  startSignup = false;
   const { profile } = getAuthState();
   if (!profile) { location.hash = "#/profile"; return; }
   const to = returnTo && !/^#\/(signin|profile)/.test(returnTo) ? returnTo : "#/";
@@ -1110,7 +1112,7 @@ function isFullTime(schedule, arrangement) {
 function viewSignIn() {
   document.title = "Sign in | Job Search PH";
   if (getAuthState().user) return finishAuthFlow();
-  let mode = "signin";
+  let mode = startSignup ? "signup" : "signin";
   const draw = () => {
     app.innerHTML = `
       <div class="auth-wrap">
@@ -1139,7 +1141,7 @@ function viewSignIn() {
         </div>
       </div>`;
     const err = (m) => { const el = $("#auth-error"); el.textContent = m; el.hidden = !m; };
-    $("#toggle").addEventListener("click", () => { mode = mode === "signup" ? "signin" : "signup"; draw(); });
+    $("#toggle").addEventListener("click", () => { mode = mode === "signup" ? "signin" : "signup"; startSignup = mode === "signup"; draw(); });
     $("#google").addEventListener("click", async () => { try { await store.signInGoogle(); } catch (e) { err(authError(e)); } });
     $("#facebook").addEventListener("click", async () => { try { await store.signInFacebook({ redirect: IN_APP_BROWSER }); } catch (e) { err(authError(e)); } });
     store.redirectError().then((e) => { if (e) err(authError(e)); });
@@ -2896,6 +2898,11 @@ function anRank(rows, { title, sub, unit = "" }) {
     ${rows.length ? `<ul class="an-rank">${rows.map((r) => `<li data-tip="${esc(`${r.label}: ${r.tipV ?? fmtN(r.v)}${unit}`)}"><span class="an-rl">${esc(r.label)}</span><span class="an-rb"><i style="width:${(r.v / max) * 100}%"></i></span><span class="an-rv">${r.show ?? fmtN(r.v)}${unit}</span></li>`).join("")}</ul>` : `<p class="muted small">No data yet.</p>`}</div>`;
 }
 
+const CHANNELS = { "fb-ad": "Facebook ad", "fb-group": "Facebook group post", "fb-page": "Facebook page post", tiktok: "TikTok", flyer: "Flyer / QR code", messenger: "Messenger / text", other: "Other" };
+const AUDIENCE = { jobseekers: "jobseekers", employers: "employers", both: "everyone" };
+function loadScript(src) {
+  return new Promise((ok, bad) => { if ([...document.scripts].some((x) => x.src === src)) return ok(); const el = document.createElement("script"); el.src = src; el.onload = ok; el.onerror = bad; document.head.appendChild(el); });
+}
 async function renderAnalytics(body) {
   body.innerHTML = `<div class="an-grid">${SK.rows(3)}</div>`;
   let data;
@@ -2959,15 +2966,28 @@ async function renderAnalytics(body) {
     const otherLatest = [...otherJobs].sort((a, b) => b.createdAt - a.createdAt).slice(0, 8);
     const seekOther = new Map(); seekers.filter((u) => u.jobCategoryOther).forEach((u) => { const k = u.jobCategoryOther.trim().toLowerCase().replace(/\s+/g, " "); const e = seekOther.get(k) || { label: u.jobCategoryOther.trim().replace(/^./, (c) => c.toUpperCase()), v: 0 }; e.v++; seekOther.set(k, e); });
     const seekOtherRows = [...seekOther.values()].sort((a, b) => b.v - a.v).slice(0, 10);
-    // sources (?src= links): sign-ups in range, and what those people did
-    const srcOf = Object.fromEntries(users.map((u) => [u.id, u.src || ""]));
+    // tracked links / ads: visits, then what the people who signed up through each link went on to do
+    const camps = Object.fromEntries((data.campaigns || []).map((c) => [c.id, c]));
+    const fromDay = R ? new Date(from + 8 * 3600000).toISOString().slice(0, 10) : "";
     const srcRows = new Map();
-    const row = (k) => { if (!srcRows.has(k)) srcRows.set(k, { src: k, users: 0, seekers: 0, employers: 0, posts: 0, apps: 0 }); return srcRows.get(k); };
-    newUsers.forEach((u) => { const r = row(u.src || ""); r.users++; if (u.role === "employer") r.employers++; else r.seekers++; });
-    newJobs.forEach((j) => { if (srcOf[j.ownerUid] !== undefined) row(srcOf[j.ownerUid]).posts++; });
-    rApps.forEach((a) => { if (srcOf[a.applicantUid] !== undefined) row(srcOf[a.applicantUid]).apps++; });
-    const sources = [...srcRows.values()].sort((a, b) => b.users - a.users || b.posts + b.apps - (a.posts + a.apps));
+    const row = (k) => { if (!srcRows.has(k)) srcRows.set(k, { src: k, visits: 0, users: 0, seekers: 0, employers: 0, applied: 0, posted: 0, live: 0, hires: 0 }); return srcRows.get(k); };
+    (data.campaigns || []).forEach((c) => row(c.id));
+    (data.visits || []).forEach((v) => { if (!fromDay || v.day >= fromDay) row(v.src).visits += v.n || 0; });
+    const appliedBy = new Set(apps.map((a) => a.applicantUid)), postedBy = new Set(jobs.map((j) => j.ownerUid)), liveBy = new Set(jobs.filter((j) => j.approvedAt).map((j) => j.ownerUid));
+    const hiredUids = new Set(apps.filter((a) => a.status === "hired").flatMap((a) => [a.applicantUid, a.employerUid]));
+    newUsers.forEach((u) => {
+      const r = row(u.src || ""); r.users++;
+      if (u.role === "employer") { r.employers++; if (postedBy.has(u.id)) r.posted++; if (liveBy.has(u.id)) r.live++; }
+      else { r.seekers++; if (appliedBy.has(u.id)) r.applied++; }
+      if (hiredUids.has(u.id)) r.hires++;
+    });
+    const sources = [...srcRows.values()].sort((a, b) => (!a.src) - (!b.src) || b.users - a.users || b.visits - a.visits);
     const tracked = sources.filter((r) => r.src).reduce((n, r) => n + r.users, 0);
+    const linkVisits = sources.reduce((n, r) => n + r.visits, 0);
+    const spendOf = (r) => Number(camps[r.src]?.spend) || 0;
+    const totalSpend = sources.reduce((n, r) => n + spendOf(r), 0);
+    const paidSignups = sources.filter((r) => spendOf(r)).reduce((n, r) => n + r.users, 0);
+    const cheapest = sources.filter((r) => spendOf(r) && r.users).sort((a, b) => spendOf(a) / a.users - spendOf(b) / b.users)[0]?.src;
 
     // funnel (applications in range, by furthest stage reached)
     const reached = (a, stages) => stages.includes(a.status);
@@ -3035,16 +3055,40 @@ async function renderAnalytics(body) {
           <div class="an-stack" role="img" aria-label="${levels.map((l) => `${l} ${lv[l]}`).join(", ")}">${levels.map((l) => lv[l] ? `<i class="s-${l.toLowerCase()}" style="flex:${lv[l]}" data-tip="${l}: ${lv[l]} (${pct(lv[l], seekers.length)}%)"></i>` : "").join("") || `<i class="empty-bar" style="flex:1"></i>`}</div>
           <ul class="an-legend">${levels.map((l) => `<li><span class="sw s-${l.toLowerCase()}"></span>${l} <strong>${lv[l]}</strong> <em>${pct(lv[l], seekers.length)}%</em></li>`).join("")}</ul></div>
       </div>
-      <h2 class="an-h">Where users come from <span class="an-sub">sign-ups in the ${rangeLbl}, by the link they first arrived from</span></h2>
-      <div class="an-grid two">
-        <div class="an-card"><h3>Sources</h3><p class="an-sub">${newUsers.length ? `${pct(tracked, newUsers.length)}% of new sign-ups came from a tracked link` : "No sign-ups in this period"}</p>
-          ${sources.length ? `<div class="an-tablewrap"><table class="an-src"><thead><tr><th>Source</th><th>Sign-ups</th><th>Jobseekers</th><th>Employers</th><th>Posts</th><th>Applications</th></tr></thead><tbody>${sources.map((r) => `<tr><td>${r.src ? esc(r.src) : `<span class="muted">Direct / unknown</span>`}</td><td>${r.users}</td><td>${r.seekers}</td><td>${r.employers}</td><td>${r.posts}</td><td>${r.apps}</td></tr>`).join("")}</tbody></table></div>` : ""}</div>
-        <div class="an-card"><h3>Make a tracked link</h3><p class="an-sub">Use a different name for each Facebook post or group, then compare them here.</p>
-          <label class="small">Name<input id="src-name" maxlength="40" placeholder="e.g. fb-bacolod-jobs-group-oct27"></label>
-          <label class="small">Page<select id="src-page"><option value="">Home (find jobs)</option><option value="#/post">Post a job</option><option value="#/signin">Sign up</option></select></label>
-          <div class="src-out"><code id="src-link">https://jobsearchph.com/?src=…</code><button type="button" class="btn btn-primary btn-sm" id="src-copy">Copy</button></div>
-          <p class="an-sub">Links people share from a job's Share button are tracked as <strong>share</strong>.</p></div>
+      <h2 class="an-h">Ads &amp; tracked links <span class="an-sub">${rangeLbl.replace(/^./, (c) => c.toUpperCase())}: visits from each link, who signed up, and what they did after</span></h2>
+      <div class="an-tiles">
+        ${anTile("Visits from links", linkVisits.toLocaleString(), "people who opened a tracked link")}
+        ${anTile("Sign-ups from links", tracked, newUsers.length ? `${pct(tracked, newUsers.length)}% of all new sign-ups` : "")}
+        ${anTile("Visit → sign-up", linkVisits ? `${pct(tracked, linkVisits)}%` : "–", "of link visitors made an account")}
+        ${anTile("Ad spend", totalSpend ? peso(totalSpend) : "–", totalSpend && paidSignups ? `${peso(Math.round(totalSpend / paidSignups))} per sign-up` : "add spend to a link below")}
       </div>
+      <div class="cmp-list">${sources.length ? sources.map((r) => {
+        const c = camps[r.src] || {}, sp = spendOf(r);
+        const stat = (label, val, sub = "") => `<div class="cmp-stat"><span>${label}</span><strong>${val}</strong>${sub ? `<em>${sub}</em>` : ""}</div>`;
+        return `<article class="cmp ${r.src ? "" : "direct"}">
+          <header><div><strong>${r.src ? esc(r.src) : "Direct / unknown"}</strong>${r.src === cheapest ? ` <span class="badge badge-approved">Cheapest sign-ups</span>` : ""}
+            <span class="cmp-tags">${r.src ? [CHANNELS[c.channel] || (r.src === "share" ? "Shared job links" : r.src === "facebook" ? "Facebook (untagged)" : ""), c.audience ? `For ${AUDIENCE[c.audience] || c.audience}` : "", c.createdAt ? `since ${new Date(c.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}` : ""].filter(Boolean).map((t) => `<span>${esc(t)}</span>`).join("") : `<span>typed the address, a bookmark, or an untagged link</span>`}</span></div>
+            ${r.src ? `<div class="cmp-actions"><button type="button" class="linkbtn small" data-cmp-copy="${esc(r.src)}">Copy link</button><button type="button" class="linkbtn small" data-cmp-qr="${esc(r.src)}">QR</button>${camps[r.src] ? `<button type="button" class="linkbtn small" data-cmp-del="${esc(r.src)}">Remove</button>` : ""}</div>` : ""}</header>
+          <div class="cmp-stats">
+            ${r.src ? stat("Visits", r.visits) : ""}
+            ${stat("Sign-ups", r.users, r.src && r.visits ? `${pct(r.users, r.visits)}% of visits` : "")}
+            ${stat("Jobseekers", r.seekers, r.seekers ? `${r.applied} applied` : "")}
+            ${stat("Employers", r.employers, r.employers ? `${r.posted} posted · ${r.live} live` : "")}
+            ${stat("Hired", r.hires)}
+            ${r.src ? `<div class="cmp-stat"><span>Spend ₱</span><input class="cmp-spend" type="number" min="0" step="50" inputmode="numeric" data-spend="${esc(r.src)}" value="${sp || ""}" placeholder="0"></div>
+            ${stat("Per sign-up", sp && r.users ? peso(Math.round(sp / r.users)) : "–", sp && r.employers ? `${peso(Math.round(sp / r.employers))} per employer` : sp && r.seekers ? `${peso(Math.round(sp / r.seekers))} per jobseeker` : "")}` : ""}
+          </div></article>`; }).join("") : `<div class="an-card"><p class="muted">No tracked links yet. Make one below.</p></div>`}</div>
+      <div class="an-card cmp-make"><h3>Make a tracked link</h3><p class="an-sub">One link per ad, group post or flyer, so you can see which one brings real employers and jobseekers.</p>
+        <div class="cmp-form">
+          <label class="small">Name<input id="src-name" maxlength="40" placeholder="e.g. fbad-yaya-nov"></label>
+          <label class="small">Who it's for<select id="src-aud"><option value="jobseekers">Jobseekers</option><option value="employers">Employers</option><option value="both">Both</option></select></label>
+          <label class="small">Where you'll post it<select id="src-ch">${Object.entries(CHANNELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
+          <label class="small">Opens<select id="src-page"><option value="#/join/jobseeker">Sign-up (as jobseeker)</option><option value="#/join/employer">Sign-up (as employer)</option><option value="#/post">Post a job</option><option value="">Home (find jobs)</option></select></label>
+          <label class="small">Budget ₱ (optional)<input id="src-spend" type="number" min="0" step="50" inputmode="numeric" placeholder="e.g. 500"></label>
+        </div>
+        <div class="src-out"><code id="src-link">https://jobsearchph.com/?src=…</code></div>
+        <div class="cmp-btns"><button type="button" class="btn btn-primary btn-sm" id="src-save">Save &amp; copy link</button><button type="button" class="btn btn-ghost btn-sm" id="src-qr">QR code for flyers</button></div>
+        <p class="an-sub">Facebook ads: paste the link as the ad's website URL. Use a different name for each ad so you can compare them. Old links and job Share links (tracked as <strong>share</strong>) show up here automatically.</p></div>
       <h2 class="an-h">"Other" job types <span class="an-sub">what people typed when no category fit, all time — promote the common ones to real categories</span></h2>
       <div class="an-grid two">${anRank(otherTypes, { title: "Employers are hiring for", sub: otherTypes.length ? `${otherTotal} post${otherTotal === 1 ? "" : "s"} used “Other”` : "" })}
         ${anRank(seekOtherRows, { title: "Jobseekers are looking for", sub: seekOtherRows.length ? `${seekers.filter((u) => u.jobCategoryOther).length} jobseeker${seekers.filter((u) => u.jobCategoryOther).length === 1 ? "" : "s"} picked “Other”` : "" })}
@@ -3056,10 +3100,40 @@ async function renderAnalytics(body) {
     body.querySelectorAll("[data-range]").forEach((b) => b.addEventListener("click", () => { anRange = Number(b.dataset.range); draw(); }));
     body.querySelectorAll("[data-goto-tab]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); adminTab = a.dataset.gotoTab; viewAdmin(); }));
     $("#an-refresh").addEventListener("click", () => renderAnalytics(body));
-    const srcLink = () => { const n = $("#src-name").value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40); return `https://jobsearchph.com/?src=${n || "…"}${$("#src-page").value}`; };
+    const srcName = () => $("#src-name").value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    const linkFor = (name, page = "") => `${location.origin.includes("staging.") ? "https://staging.jobsearchph.com" : "https://jobsearchph.com"}/?src=${name}${page}`;
+    const srcLink = () => linkFor(srcName() || "…", $("#src-page").value);
     const paintSrc = () => { $("#src-link").textContent = srcLink(); };
-    $("#src-name").addEventListener("input", paintSrc); $("#src-page").addEventListener("change", paintSrc);
-    $("#src-copy").addEventListener("click", async () => { if (!$("#src-name").value.trim()) { toast("Give the link a name first"); return $("#src-name").focus(); } try { await navigator.clipboard.writeText(srcLink()); toast("Link copied"); } catch { toast("Copy failed. Select the link and copy it."); } });
+    const pageFor = { jobseekers: "#/join/jobseeker", employers: "#/join/employer", both: "" };
+    $("#src-aud").addEventListener("change", () => { $("#src-page").value = pageFor[$("#src-aud").value]; paintSrc(); });
+    $("#src-name").addEventListener("input", paintSrc); $("#src-page").addEventListener("change", paintSrc); paintSrc();
+    const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast("Link copied"); } catch { toast("Copy failed. Select the link and copy it."); } };
+    $("#src-save").addEventListener("click", async () => {
+      const name = srcName(); if (!name) { toast("Give the link a name first"); return $("#src-name").focus(); }
+      const c = { audience: $("#src-aud").value, channel: $("#src-ch").value, page: $("#src-page").value, spend: Number($("#src-spend").value) || 0 };
+      try { await store.saveCampaign(name, camps[name] ? c : { ...c, createdAt: Date.now() }); } catch (e) { console.error(e); return toast("Couldn't save the link"); }
+      await copy(linkFor(name, c.page));
+      data.campaigns = [...(data.campaigns || []).filter((x) => x.id !== name), { id: name, ...camps[name], ...c, createdAt: camps[name]?.createdAt || Date.now() }]; draw();
+    });
+    const showQR = async (name, url) => {
+      try { await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"); } catch { return toast("Couldn't load the QR maker"); }
+      const box = document.createElement("div"); new window.QRCode(box, { text: url, width: 512, height: 512, correctLevel: window.QRCode.CorrectLevel.M });
+      await new Promise((r) => setTimeout(r, 150));
+      const png = box.querySelector("canvas")?.toDataURL("image/png") || box.querySelector("img")?.src;
+      showDialog({ title: "QR code", body: `<img src="${png}" alt="QR code" style="width:220px;height:220px;display:block;margin:0 auto 8px"><span class="small muted">${esc(url)}</span><br><a class="btn btn-primary btn-sm" href="${png}" download="jsph-qr-${esc(name)}.png" style="margin-top:10px">Download PNG</a>`, actions: [{ label: "Close", value: true }] });
+    };
+    $("#src-qr").addEventListener("click", () => { const name = srcName(); if (!name) { toast("Give the link a name first"); return $("#src-name").focus(); } showQR(name, linkFor(name, $("#src-page").value)); });
+    body.querySelectorAll("[data-cmp-qr]").forEach((b) => b.addEventListener("click", () => showQR(b.dataset.cmpQr, linkFor(b.dataset.cmpQr, camps[b.dataset.cmpQr]?.page ?? ""))));
+    body.querySelectorAll("[data-cmp-copy]").forEach((b) => b.addEventListener("click", () => copy(linkFor(b.dataset.cmpCopy, camps[b.dataset.cmpCopy]?.page ?? ""))));
+    body.querySelectorAll("[data-cmp-del]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirmInline(b, "Click again to remove")) return;
+      try { await store.deleteCampaign(b.dataset.cmpDel); data.campaigns = data.campaigns.filter((x) => x.id !== b.dataset.cmpDel); draw(); } catch { toast("Couldn't remove"); }
+    }));
+    body.querySelectorAll("[data-spend]").forEach((inp) => inp.addEventListener("change", async () => {
+      const src = inp.dataset.spend, spend = Math.max(0, Number(inp.value) || 0);
+      try { await store.saveCampaign(src, camps[src] ? { spend } : { spend, createdAt: Date.now() }); toast("Spend saved"); data.campaigns = [...(data.campaigns || []).filter((x) => x.id !== src), { ...(camps[src] || { id: src, createdAt: Date.now() }), spend }]; draw(); }
+      catch { toast("Couldn't save spend"); }
+    }));
     $("#an-csv").addEventListener("click", () => {
       const rows = [["Job ID", "Title", "Employer", "Category", "Other type", "City", "Workplace", "Status", "Posted", "Pay (monthly equiv.)", "Applicants", "Hired"]].concat(jobs.map((j) => [j.id, j.title, j.employerName, j.category, j.categoryOther || "", j.city, j.workplace, j.status, j.createdAt ? new Date(j.createdAt).toISOString().slice(0, 10) : "", Math.round(monthlyEquivalent(j)), appsPer(j), apps.filter((a) => a.jobId === j.id && a.status === "hired").length]));
       const csv = rows.map((r) => r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -3455,6 +3529,12 @@ async function route() {
   if (!page) return viewList();
   // Keep only the ID: share menus sometimes glue the title/text onto the link ("…/job/abc123%20Live-in%20Yaya").
   if (page === "job" && arg) { let raw = arg; try { raw = decodeURIComponent(arg); } catch {} const id = (raw.match(/^[A-Za-z0-9_-]+/) || [""])[0]; if (id && id !== raw) { history.replaceState(null, "", `${location.pathname}${location.search}#/job/${id}`); } return viewJob(id); }
+  if (page === "join") { // tracked links for ads: open sign-up, already set as jobseeker or employer
+    if (user) { location.hash = profile ? (arg === "employer" ? "#/post" : "#/") : "#/profile"; return; }
+    signupIntent = arg === "employer" ? "employer" : "jobseeker"; startSignup = true;
+    if (arg === "employer") returnTo = "#/post";
+    location.hash = "#/signin"; return;
+  }
   if (page === "signin") return viewSignIn();
   if (page === "signedout") return viewSignedOut(arg);
   if (page === "delete-account") return viewDeleteAccount();

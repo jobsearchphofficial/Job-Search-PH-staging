@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793253601";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793254020";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -79,17 +79,29 @@ async function loadProfile(user) {
   return { profile: p?.exists() ? norm(p) : null, isAdmin: !!a?.exists(), banned: b?.exists() ? norm(b) : null };
 }
 
-/* ---- Where visitors came from (?src=fb-bacolod-group). First touch, kept 60 days, no personal data. ---- */
+/* ---- Where visitors came from (?src=fb-ad-yaya-nov). First touch, kept 60 days, no personal data. ----
+   Also understands Facebook/Google ad tags: utm_campaign (or utm_source) becomes the source name. */
+const slug = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+let landedFrom = ""; // a tracked link brought this visit (counted once per link per day in visits/)
 (() => {
   try {
     const q = new URLSearchParams(location.search);
-    const raw = q.get("src") || q.get("utm_source") || q.get("ref") || (q.has("fbclid") ? "facebook" : "");
-    const clean = String(raw).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    const raw = q.get("src") || q.get("utm_campaign") || q.get("utm_source") || q.get("ref") || (q.has("fbclid") ? "facebook" : "");
+    const clean = slug(raw);
+    landedFrom = clean;
     const cur = JSON.parse(localStorage.getItem("jsph-src") || "null");
     if (clean && (!cur || Date.now() - cur.at > 60 * 86400000)) localStorage.setItem("jsph-src", JSON.stringify({ src: clean, at: Date.now() }));
-    if (raw || q.has("fbclid")) { ["src", "utm_source", "utm_medium", "utm_campaign", "ref", "fbclid"].forEach((k) => q.delete(k)); const qs = q.toString(); history.replaceState(null, "", location.pathname + (qs ? `?${qs}` : "") + location.hash); }
+    if (raw || q.has("fbclid")) { ["src", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "utm_id", "ref", "fbclid"].forEach((k) => q.delete(k)); const qs = q.toString(); history.replaceState(null, "", location.pathname + (qs ? `?${qs}` : "") + location.hash); }
   } catch {}
 })();
+const phDate = (t = Date.now()) => new Date(t + 8 * 3600000).toISOString().slice(0, 10);
+// One count per browser, per link, per day. Admin → Analytics adds these up as "visits".
+async function recordVisit() {
+  if (!landedFrom) return;
+  const day = phDate(), key = `jsph-v-${landedFrom}-${day}`;
+  try { if (localStorage.getItem(key)) return; localStorage.setItem(key, "1"); } catch {}
+  await F.setDoc(F.doc(db, "visits", `${landedFrom}__${day}`), { src: landedFrom, day, n: F.increment(1) }, { merge: true }).catch(() => {});
+}
 export const visitSource = () => { try { const c = JSON.parse(localStorage.getItem("jsph-src") || "null"); return c && Date.now() - c.at < 60 * 86400000 ? c.src : ""; } catch { return ""; } };
 
 // applies, messages, reports, support: per day. posts: per calendar month (Pro may raise this later; also update the 5 in firestore.rules mcnt).
@@ -133,6 +145,7 @@ export const store = {
       A.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
       F.connectFirestoreEmulator(db, "127.0.0.1", 8085);
     }
+    recordVisit();
     A.onAuthStateChanged(auth, async (user) => {
       const [extra, mustConfirmEmail] = await Promise.all([loadProfile(user), needsConfirm(user)]);
       state = { user: user ? { uid: user.uid, displayName: user.displayName, email: user.email } : null, ...extra, mustConfirmEmail, ready: true };
@@ -503,9 +516,12 @@ export const store = {
   // Admin analytics: everything in one go (fine at early scale; capped per collection).
   async adminAll() {
     const q = async (c) => (await F.getDocs(F.query(F.collection(db, c), F.limit(5000)))).docs.map(norm);
-    const [users, jobs, apps, reports, support, bans, verified] = await Promise.all([q("users"), q("jobs"), q("applications"), q("reports").catch(() => []), q("support").catch(() => []), q("bans").catch(() => []), q("verified").catch(() => [])]);
-    return { users, jobs, apps, reports, support, bans, verified };
+    const [users, jobs, apps, reports, support, bans, verified, visits, campaigns] = await Promise.all([q("users"), q("jobs"), q("applications"), q("reports").catch(() => []), q("support").catch(() => []), q("bans").catch(() => []), q("verified").catch(() => []), q("visits").catch(() => []), q("campaigns").catch(() => [])]);
+    return { users, jobs, apps, reports, support, bans, verified, visits, campaigns };
   },
+  // Tracked links / ad campaigns (admin only): name = the ?src= value.
+  async saveCampaign(src, data) { await F.setDoc(F.doc(db, "campaigns", src), { ...data, updatedAt: F.serverTimestamp() }, { merge: true }); },
+  async deleteCampaign(src) { await F.deleteDoc(F.doc(db, "campaigns", src)); },
   async adminUser(id) {
     const [u, b, posts, applied] = await Promise.all([
       F.getDoc(F.doc(db, "users", id)), F.getDoc(F.doc(db, "bans", id)).catch(() => null),
