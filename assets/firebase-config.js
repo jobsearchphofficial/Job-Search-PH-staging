@@ -38,4 +38,4 @@ export const LISTING_DAYS = 30;
 export const RESUME_UPLOADS = false;
 // "Continue with Facebook". Turn on only after the Facebook app is set up and the Facebook
 // provider is enabled in this site's Firebase project (Authentication → Sign-in method).
-export const FB_LOGIN = { staging: false, live: false }[IS_STAGING ? "staging" : "live"];
+export const FB_LOGIN = { staging: true, live: false }[IS_STAGING ? "staging" : "live"];
