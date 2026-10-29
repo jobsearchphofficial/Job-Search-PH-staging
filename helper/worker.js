@@ -46,7 +46,10 @@ export default {
       return path === "/send" ? await send(who, db, env, reply) : await verify(who, db, body, reply);
     } catch (e) {
       console.error(e.stack || e.message);
-      return reply(500, { error: "server" });
+      // Which step failed (no secret values): "secret", "google", "firestore", "auth" or "mail".
+      const m = String(e.message || "");
+      const step = /secret/i.test(m) || e instanceof SyntaxError ? "secret" : /^Google/.test(m) ? "google" : /^Firestore/.test(m) ? "firestore" : /sendOobCode/.test(m) ? "auth" : "other";
+      return reply(500, { error: "server", step, status: (m.match(/\b(\d{3})\b/) || [])[1] || null });
     }
   },
 };
