@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793268000";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793269000";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -179,7 +179,7 @@ export const store = {
   async signInEmail(email, pw) { await A.signInWithEmailAndPassword(auth, email, pw); },
   async signUpEmail(email, pw, name) {
     const cred = await A.createUserWithEmailAndPassword(auth, email, pw);
-    if (name) await A.updateProfile(cred.user, { displayName: name }).catch(() => {});
+    if (name) { await A.updateProfile(cred.user, { displayName: name }).catch(() => {}); await cred.user.getIdToken(true).catch(() => {}); } // fresh token carries the name, so the email says "Hi Mark"
     this.sendVerification().catch(() => {});
   },
   // Email confirmation for email + password accounts.
