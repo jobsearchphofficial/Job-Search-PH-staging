@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793262000";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793263000";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -380,7 +380,7 @@ export const store = {
     if (silent) return;
     if (note) return this.notify(a.applicantUid, { ...note, appId: a.id, jobId: a.jobId }).catch(() => {});
     const msg = {
-      shortlisted: ["You're shortlisted", `The employer shortlisted you for ${a.jobTitle}. Expect a call or message soon.`],
+      shortlisted: ["You're shortlisted", `The employer shortlisted you for ${a.jobTitle}. You can now message them in Messages.`],
       offered: ["You got a job offer!", `${a.employerName || "The employer"} offered you the ${a.jobTitle} job. Accept or decline it.`],
       not_selected: ["Application update", `The employer chose other applicants for ${a.jobTitle}. Your chat with them stays open for 48 hours.`],
     }[status];
@@ -479,6 +479,7 @@ export const store = {
     await F.updateDoc(F.doc(db, "applications", a.id), {
       lastMessageAt: F.serverTimestamp(), lastMessageFrom: me, lastMessageText: preview.slice(0, 140),
       [iAmEmployer ? "employerSeenAt" : "applicantSeenAt"]: F.serverTimestamp(),
+      ...(iAmEmployer && !a.employerWrote ? { employerWrote: true } : {}), // lets the jobseeker reply
     });
     if (otherCaughtUp) {
       const fromName = iAmEmployer ? (a.employerName || "The employer") : (a.applicant?.fullName || "An applicant");
@@ -587,6 +588,16 @@ export const store = {
   async listFlags() {
     const s = await F.getDocs(F.query(F.collection(db, "flags"), F.orderBy("createdAt", "desc"), F.limit(200)));
     return s.docs.map(norm);
+  },
+  // How many things are waiting in each admin queue. Count queries cost about one read each.
+  async adminCounts() {
+    const n = async (q) => { try { return (await F.getCountFromServer(q)).data().count; } catch { return null; } };
+    const C = (c) => F.collection(db, c);
+    const [pending, reports, flags, verify, supportAll, supportDone] = await Promise.all([
+      n(F.query(C("jobs"), F.where("status", "==", "pending"))), n(C("reports")), n(C("flags")),
+      n(F.query(C("verifyRequests"), F.where("status", "==", "pending"))), n(C("support")), n(F.query(C("support"), F.where("status", "==", "done"))),
+    ]);
+    return { pending, reports, flags, verify, support: supportAll == null ? null : Math.max(0, supportAll - (supportDone || 0)) };
   },
   async dismissFlag(id) { await F.deleteDoc(F.doc(db, "flags", id)); },
   async dismissReport(id) { await F.deleteDoc(F.doc(db, "reports", id)); },

@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793262000";
-import { IS_STAGING } from "./firebase-config.js?v=1793262000";
-import { fitScore, rankApplicants } from "./match.js?v=1793262000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793262000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793263000";
+import { IS_STAGING } from "./firebase-config.js?v=1793263000";
+import { fitScore, rankApplicants } from "./match.js?v=1793263000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793263000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -52,6 +52,7 @@ const REPORT_REASONS = {
 const STATUS_LABEL = { pending: "Under review", approved: "Live", rejected: "Rejected", closed: "Closed" };
 const APP_STATUS = { new: "Sent", shortlisted: "Shortlisted", offered: "Job offer", not_selected: "Not selected", offer_declined: "Offer declined", hired: "Hired" };
 const DECLINED = ["not_selected", "offer_declined"];
+const LOCK_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
 const CAN_SMS = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const FB_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="#1877F2" d="M24 12a12 12 0 1 0-13.9 11.9v-8.4H7.1V12h3V9.4c0-3 1.8-4.7 4.5-4.7 1.3 0 2.7.2 2.7.2v2.9h-1.5c-1.5 0-2 .9-2 1.9V12h3.4l-.5 3.5h-2.9v8.4A12 12 0 0 0 24 12z"/><path fill="#fff" d="m16.7 15.5.5-3.5h-3.4V9.7c0-1 .5-1.9 2-1.9h1.5V4.9s-1.4-.2-2.7-.2c-2.7 0-4.5 1.6-4.5 4.7V12h-3v3.5h3v8.4a12 12 0 0 0 3.7 0v-8.4h2.9z"/></svg>`;
 const IN_APP_BROWSER = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\//i.test(navigator.userAgent);
@@ -1167,7 +1168,7 @@ async function renderApplyPanel(j, isOwner) {
         ${links.map((c, i) => `<a class="btn ${i ? "btn-ghost" : "btn-primary"} btn-block" href="${esc(c.href)}" target="_blank" rel="noopener nofollow">${esc(c.label)}</a>
         ${c.extra ? `<a class="btn btn-ghost btn-block" href="${esc(c.extra)}">Send a text</a>` : ""}
         <p class="small muted copyable">${esc(c.text)}</p>`).join("")}` : ""}
-      <a class="btn ${mine.status === "offered" ? "btn-ghost" : "btn-primary"} btn-block" href="#/chat/${encodeURIComponent(mine.id)}">${chatState(mine).open ? "Message the employer" : "View chat"}</a>
+      <a class="btn ${mine.status === "offered" ? "btn-ghost" : "btn-primary"} btn-block" href="#/chat/${encodeURIComponent(mine.id)}">${chatState(mine).open ? "Message the employer" : chatState(mine).locked && !chatState(mine).declined ? "Open chat" : "View chat"}</a>
       ${mine.status === "new" || mine.status === "shortlisted" ? `<p class="withdraw-line"><button type="button" class="linkbtn small muted" id="withdraw">Withdraw application</button></p>` : ""}`;
     panel.querySelector(".offer-row")?.addEventListener("click", (e) => { const b = e.target.closest("[data-offer]"); if (b) handleOffer(b, mine, () => renderApplyPanel(j, false)); });
     $("#withdraw")?.addEventListener("click", async () => {
@@ -2535,8 +2536,11 @@ const CHAT_GRACE_MS = 48 * 3600000;
 let inbox = [];
 let unwatchInbox = null;
 let inboxRole = null;
+// Jobseekers can write once the employer shortlists them (or further), or after the employer messages them first.
+const seekerMayWrite = (a) => ["shortlisted", "offered", "hired", "offer_declined"].includes(a.status) || a.employerWrote === true || a.lastMessageFrom === a.employerUid;
 function chatState(a) {
   if (a.applicantDeleted || a.employerDeleted) return { open: false, declined: true, gone: true, hoursLeft: 0 };
+  if (getAuthState().user?.uid === a.applicantUid && !seekerMayWrite(a)) return { open: false, locked: true, declined: DECLINED.includes(a.status), hoursLeft: 0 };
   if (!DECLINED.includes(a.status)) return { open: true, declined: false };
   const closesAt = (typeof a.declinedAt === "number" ? a.declinedAt : Date.now()) + CHAT_GRACE_MS; // just declined = full 48h
   const left = closesAt - Date.now();
@@ -2562,7 +2566,7 @@ function startInbox() {
   });
 }
 const otherName = (a) => (getAuthState().user?.uid === a.employerUid ? a.applicant?.fullName || "Applicant" : a.employerName || "Employer");
-const chatClosedText = (st) => st.open ? `Chat closes in ${st.hoursLeft} hour${st.hoursLeft === 1 ? "" : "s"}` : "Chat closed";
+const chatClosedText = (st) => st.locked ? "Chat closed" : st.open ? `Chat closes in ${st.hoursLeft} hour${st.hoursLeft === 1 ? "" : "s"}` : "Chat closed";
 
 function viewMessages() {
   document.title = "Messages | Job Search PH";
@@ -2584,7 +2588,7 @@ function drawInbox() {
       <span class="thread-main">
         <span class="thread-top"><strong>${esc(name)}</strong><small>${a.lastMessageAt ? ago(a.lastMessageAt) : ""}</small></span>
         <span class="thread-job">${esc(a.jobTitle)}${a.jobCity ? ` · ${esc(a.jobCity)}` : ""} ${st.declined ? `<em class="closing">${chatClosedText(st)}</em>` : appBadge(a.status, a.employerUid === me)}</span>
-        <span class="thread-last">${a.lastMessageText ? `${a.lastMessageFrom === me ? "You: " : ""}${esc(a.lastMessageText)}` : `<i>No messages yet. Say hello.</i>`}</span>
+        <span class="thread-last">${a.lastMessageText ? `${a.lastMessageFrom === me ? "You: " : ""}${esc(a.lastMessageText)}` : `<i>${st.locked ? "The employer will message you here." : "No messages yet. Say hello."}</i>`}</span>
       </span>
       ${unread ? `<span class="unread-dot" aria-label="Unread"></span>` : ""}
     </a>`; }).join("")}</div>`
@@ -2629,12 +2633,12 @@ async function viewChat(appId) {
     $("#chat-badge").innerHTML = appBadge(a.status, iAmEmployer);
     const emp = adminView ? "" : (a.status === "hired" && !a.employmentEnded && a.endRequestedBy ? `<div class="chat-banner emp">${employmentHtml(a)}</div>` : "")
       + (a.status === "offered" ? `<div class="chat-banner emp">${iAmEmployer ? `<span class="emp-state">You offered ${esc(name)} the job. Waiting for them to accept.</span>` : offerHtml(a)}</div>` : "");
-    $("#chat-banner").innerHTML = st.gone ? `<p class="chat-banner closed">${(iAmEmployer ? a.applicantDeleted : a.employerDeleted) || adminView ? "This person deleted their account." : "You deleted your account."} The chat is closed. Past messages are deleted after 30 days.</p>` : emp + (st.declined
+    $("#chat-banner").innerHTML = st.locked && !adminView ? `<p class="chat-banner locked">${st.declined ? "The employer chose other applicants." : `${LOCK_ICON}<span><strong>The employer starts the chat.</strong> You can message them here once they shortlist you or send you a message. We'll let you know.</span>`}</p>` : st.gone ? `<p class="chat-banner closed">${(iAmEmployer ? a.applicantDeleted : a.employerDeleted) || adminView ? "This person deleted their account." : "You deleted your account."} The chat is closed. Past messages are deleted after 30 days.</p>` : emp + (st.declined
       ? `<p class="chat-banner ${st.open ? "" : "closed"}">${st.open
           ? `${a.status === "offer_declined" ? (iAmEmployer ? `${esc(name)} declined your offer.` : "You declined this offer.") : iAmEmployer ? "You marked this applicant as not a fit." : "The employer chose other applicants."} This chat closes in <strong>${st.hoursLeft} hour${st.hoursLeft === 1 ? "" : "s"}</strong>.`
           : "This chat has closed. You can still read past messages."}</p>` : "");
     input.disabled = !st.open; form.querySelectorAll("button, input").forEach((el) => (el.disabled = !st.open));
-    input.placeholder = st.open ? "Write a message…" : "Chat closed";
+    input.placeholder = st.open ? "Write a message…" : st.locked && !st.declined ? "Waiting for the employer" : "Chat closed";
     form.classList.toggle("closed", !st.open);
   };
   $("#chat-banner").addEventListener("click", (e) => {
@@ -2706,6 +2710,36 @@ async function viewChat(appId) {
 
 /* ---------------- Admin ---------------- */
 let adminTab = "analytics";
+let adminCounts = {};
+const ADMIN_GROUPS = [["overview", "Overview"], ["review", "To review"], ["manage", "Manage"]];
+const ADMIN_SECTIONS = [
+  { k: "analytics", g: "overview", label: "Analytics", icon: "chart", title: "Analytics", desc: "Visitors, sign-ups, applications and hires, and which links and ads bring people in." },
+  { k: "pending", g: "review", queue: true, label: "Pending posts", icon: "inbox", title: "Pending posts", desc: "New job posts waiting for approval. Check the employer before you approve." },
+  { k: "reports", g: "review", queue: true, label: "Reports", icon: "flag", title: "Reports", desc: "Job posts that users reported. Close the post or dismiss the report." },
+  { k: "flags", g: "review", queue: true, label: "Chat flags", icon: "alert", title: "Chat flags", desc: "Chat messages that look like a scam: money, fees, one-time codes, ID numbers or odd links. Checked automatically. Open the chat to see the whole conversation." },
+  { k: "verify", g: "review", queue: true, label: "ID checks", icon: "id", title: "ID checks", desc: "Check that the ID looks real, the name matches their profile, and the face matches the selfie. Photos are deleted as soon as you decide." },
+  { k: "support", g: "review", queue: true, label: "Support", icon: "help", title: "Support", desc: "Messages sent through Contact support." },
+  { k: "users", g: "manage", label: "Users", icon: "users", title: "Users", desc: "Everyone with a profile. Open someone to see their details, verify or ban them." },
+  { k: "approved", g: "manage", label: "Live posts", icon: "check", title: "Live posts", desc: "Jobs showing on the site now." },
+  { k: "rejected", g: "manage", label: "Rejected", icon: "x", title: "Rejected posts", desc: "Posts you didn't approve. You can re-publish them." },
+  { k: "closed", g: "manage", label: "Closed", icon: "archive", title: "Closed posts", desc: "Posts that were filled, expired or closed." },
+];
+const IS_STAGING_SITE = /staging\./.test(location.hostname);
+const _i = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ADMIN_ICONS = {
+  chart: _i('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
+  inbox: _i('<path d="M3 13h5l2 3h4l2-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/>'),
+  flag: _i('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
+  alert: _i('<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>'),
+  id: _i('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="12" r="2.2"/><path d="M14 10h4M14 14h3"/>'),
+  help: _i('<path d="M4 5h16v11H8l-4 4z"/><path d="M9.5 9a2.5 2.5 0 0 1 4.6 1.3c0 1.7-2.1 1.9-2.1 3M12 15.5h.01"/>'),
+  users: _i('<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 4.5a3 3 0 0 1 0 6M18 14.5a6 6 0 0 1 3 5.5"/>'),
+  check: _i('<circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/>'),
+  x: _i('<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>'),
+  archive: _i('<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>'),
+  shield: _i('<path d="M12 3 4 6v6c0 4.5 3.4 7.9 8 9 4.6-1.1 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>'),
+  refresh: _i('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
+};
 let supportView = "open";
 let anRange = 30;
 const adminJobs = {};
@@ -3320,12 +3354,47 @@ async function viewAdmin() {
   const { user, isAdmin } = getAuthState();
   if (!user) return goSignIn("Admin sign in");
   if (!isAdmin) { app.innerHTML = `<div class="empty"><h1>Not authorized</h1><p class="muted">This account is not an admin.</p></div>`; return; }
-  const tabs = { analytics: "Analytics", users: "Users", pending: "Pending", approved: "Live", reports: "Reports", flags: "Chat flags", verify: "ID checks", support: "Support", rejected: "Rejected", closed: "Closed" };
+  const sec = ADMIN_SECTIONS.find((x) => x.k === adminTab) || ADMIN_SECTIONS[0];
+  const navItem = (x) => {
+    const n = x.queue ? adminCounts[x.k] : null;
+    return `<a class="adm-link ${adminTab === x.k ? "on" : ""}" href="#/admin/${x.k}" data-tab="${x.k}" ${adminTab === x.k ? 'aria-current="page"' : ""}>
+      <span class="adm-ico">${ADMIN_ICONS[x.icon]}</span><span class="adm-label">${x.label}</span>${n ? `<span class="adm-count">${n > 99 ? "99+" : n}</span>` : ""}</a>`;
+  };
+  const groupsHtml = () => {
+    const waiting = ["pending", "reports", "flags", "verify", "support"].reduce((t, k) => t + (adminCounts[k] || 0), 0);
+    return ADMIN_GROUPS.map(([g, label]) => `<nav class="adm-group"><p class="adm-group-label">${label}${g === "review" && waiting ? `<span class="adm-waiting">${waiting} waiting</span>` : ""}</p>${ADMIN_SECTIONS.filter((x) => x.g === g).map(navItem).join("")}</nav>`).join("");
+  };
+  const bindNav = () => app.querySelectorAll(".adm-side [data-tab]").forEach((b) => b.addEventListener("click", (e) => {
+    if (e.metaKey || e.ctrlKey) return;
+    e.preventDefault(); adminTab = b.dataset.tab;
+    history.replaceState(null, "", `${location.pathname}${location.search}#/admin/${adminTab}`); viewAdmin();
+  }));
   app.innerHTML = `
-    <div class="page-head"><h1>Admin</h1></div>
-    <div class="tabs" role="tablist">${Object.entries(tabs).map(([k, v]) => `<button role="tab" class="tab ${adminTab === k ? "active" : ""}" data-tab="${k}">${v}${k === "pending" && pendingForAdmin ? ` <span class="count">${pendingForAdmin}</span>` : ""}</button>`).join("")}</div>
-    <div id="admin-body">${SK.rows(4)}</div>`;
-  app.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { adminTab = b.dataset.tab; viewAdmin(); }));
+    <div class="adm">
+      <aside class="adm-side" aria-label="Admin sections">
+        <div class="adm-brand"><span class="adm-brand-ico">${ADMIN_ICONS.shield}</span><div><strong>Admin</strong><span>Job Search PH${IS_STAGING_SITE ? " · Test site" : ""}</span></div></div>
+        <div class="adm-groups">${groupsHtml()}</div>
+      </aside>
+      <section class="adm-main">
+        <header class="adm-head">
+          <div><p class="adm-crumb">${ADMIN_GROUPS.find(([g]) => g === sec.g)[1]}</p><h1>${sec.title}</h1><p class="adm-desc">${sec.desc}</p></div>
+          ${adminTab === "analytics" ? "" : `<button type="button" class="btn btn-ghost btn-sm adm-refresh" id="adm-refresh" title="Refresh">${ADMIN_ICONS.refresh}<span>Refresh</span></button>`}
+        </header>
+        <div id="admin-body">${SK.rows(4)}</div>
+      </section>
+    </div>`;
+  bindNav();
+  $("#adm-refresh")?.addEventListener("click", () => viewAdmin());
+  if (innerWidth < 900) $(".adm-link.on")?.scrollIntoView({ block: "nearest", inline: "center" });
+  // Queue counts in the sidebar refresh in the background.
+  const shown = $(".adm");
+  store.adminCounts().then((c) => {
+    const fresh = Object.fromEntries(Object.entries(c).filter(([, v]) => v != null));
+    const changed = Object.keys(fresh).some((k) => fresh[k] !== adminCounts[k]);
+    adminCounts = { ...adminCounts, ...fresh };
+    if (c.pending != null && c.pending !== pendingForAdmin) { pendingForAdmin = c.pending; renderBell(); renderNav(); }
+    if (changed && shown.isConnected) { $(".adm-groups").innerHTML = groupsHtml(); bindNav(); }
+  }).catch(() => {});
 
   const body = $("#admin-body");
   if (adminTab === "analytics") return renderAnalytics(body);
@@ -3352,7 +3421,7 @@ async function viewAdmin() {
     const [reqs, ctx] = await Promise.all([store.listVerifyRequests().catch(() => []), store.adminAll().catch(() => null)]);
     const users = ctx ? Object.fromEntries(ctx.users.map((u) => [u.id, u])) : {};
     reqs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    body.innerHTML = `<p class="small muted">Check that the ID looks real, the name matches their profile, and the face in the selfie matches the ID. The photos are deleted as soon as you approve or reject.</p>
+    body.innerHTML = `
       ${reqs.length ? reqs.map((r) => { const u = users[r.id] || {}; const fb = fbHref(r.fbUrl || u.fbUrl); return `
       <article class="vr-item" data-vr="${esc(r.id)}">
         <header><strong>${esc(u.fullName || "User")}</strong> <span class="badge ${u.role === "jobseeker" ? "badge-app-new" : "badge-approved"}">${u.role === "jobseeker" ? "Jobseeker" : "Employer"}</span>${u.companyName && u.role !== "jobseeker" ? ` · ${esc(u.companyName)}` : ""} <span class="muted small">· ${esc(r.idType)} · sent ${r.createdAt ? ago(r.createdAt) : ""}</span>
@@ -3360,7 +3429,7 @@ async function viewAdmin() {
         <div class="vr-pics">${[["idPhoto", "ID"], ["selfie", "Selfie with ID"]].map(([k, l]) => safePhoto(r[k]) ? `<figure><img class="vr-img" src="${safePhoto(r[k])}" alt="${l}"><figcaption>${l}</figcaption></figure>` : `<p class="muted small">${l}: missing</p>`).join("")}</div>
         <p class="small">${u.phone ? `Phone: <a href="tel:${esc(digits(u.phone))}">${esc(u.phone)}</a> · ` : ""}${fb ? `<a href="${esc(fb)}" target="_blank" rel="noopener nofollow">Facebook</a>` : "No Facebook link"}</p>
         <div class="actions"><button class="btn btn-primary btn-sm" data-vr-ok="${esc(r.id)}">Approve</button><button class="btn btn-ghost btn-sm" data-vr-no="${esc(r.id)}">Reject</button></div>
-      </article>`; }).join("") : `<div class="empty"><p>No ID checks waiting. 🎉</p></div>`}`;
+      </article>`; }).join("") : `<div class="adm-empty">${ADMIN_ICONS.check}<p><strong>All clear.</strong> No ID checks waiting.</p></div>`}`;
     body.addEventListener("click", async (e) => {
       const im = e.target.closest(".vr-img"); if (im) return showPhoto(im.src);
       const ok = e.target.closest("[data-vr-ok]"), no = e.target.closest("[data-vr-no]"); if (!ok && !no) return;
@@ -3377,27 +3446,34 @@ async function viewAdmin() {
   } else if (adminTab === "flags") {
     // Chat messages the email robot flagged (money, fees, codes, ID numbers, odd links).
     const flags = await store.listFlags().catch(() => []);
-    body.innerHTML = `<p class="small muted">Chat messages that look like a scam (money, fees, one-time codes, ID numbers or odd links). Checked every 15 minutes. Open the chat to see the whole conversation.</p>
-      ${flags.length ? `<div class="table">${flags.map((f) => `
-      <div class="trow">
-        <div><strong>${esc((f.types || []).map((t) => ({ money: "Money", fee: "Fee", otp: "One-time code", id: "ID / account number", link: "Link" }[t] || t)).join(" · "))}</strong>
-          <div class="small">“${esc(f.text || (f.photo ? "(photo)" : ""))}”</div>
-          <div class="muted small">From ${esc(f.fromName || "")} (${f.fromRole === "employer" ? "employer" : "jobseeker"}) · ${esc(f.jobTitle || "")} · ${f.createdAt ? ago(f.createdAt) : ""}</div></div>
-        <div class="actions"><a class="btn btn-ghost btn-sm" href="#/chat/${encodeURIComponent(f.appId)}">Open chat</a>${f.fromUid ? `<a class="btn btn-ghost btn-sm" href="#/admin/user/${encodeURIComponent(f.fromUid)}">Sender</a>` : ""}<button class="btn btn-ghost btn-sm" data-flag-done="${esc(f.id)}">Looks fine</button></div>
-      </div>`).join("")}</div>` : `<div class="empty"><p>No flagged chat messages. 🎉</p></div>`}`;
-    body.querySelectorAll("[data-flag-done]").forEach((b) => b.addEventListener("click", async () => { try { await store.dismissFlag(b.dataset.flagDone); b.closest(".trow").remove(); toast("Cleared"); } catch { toast("Couldn't clear it"); } }));
+    body.innerHTML = `
+      ${flags.length ? `<div class="adm-list">${flags.map((f) => `
+      <article class="adm-card">
+        <div class="adm-card-main">
+          <div class="adm-tags">${(f.types || []).map((t) => `<span class="adm-tag ${["money", "fee", "otp"].includes(t) ? "red" : "amber"}">${esc({ money: "Money", fee: "Fee", otp: "One-time code", id: "ID / account number", link: "Link" }[t] || t)}</span>`).join("")}</div>
+          <blockquote class="adm-quote">${esc(f.text || (f.photo ? "(photo)" : ""))}</blockquote>
+          <p class="adm-meta">From ${f.fromUid ? `<a href="#/admin/user/${encodeURIComponent(f.fromUid)}">${esc(f.fromName || "user")}</a>` : esc(f.fromName || "")} <span class="adm-role">${f.fromRole === "employer" ? "Employer" : "Jobseeker"}</span> · ${esc(f.jobTitle || "")} · ${f.createdAt ? ago(f.createdAt) : ""}</p>
+        </div>
+        <div class="adm-card-actions"><a class="btn btn-primary btn-sm" href="#/chat/${encodeURIComponent(f.appId)}">Open chat</a><button class="btn btn-ghost btn-sm" data-flag-done="${esc(f.id)}">Looks fine</button></div>
+      </article>`).join("")}</div>` : `<div class="adm-empty">${ADMIN_ICONS.check}<p><strong>All clear.</strong> No flagged chat messages.</p></div>`}`;
+    body.querySelectorAll("[data-flag-done]").forEach((b) => b.addEventListener("click", async () => { try { await store.dismissFlag(b.dataset.flagDone); b.closest(".adm-card").remove(); toast("Cleared"); } catch { toast("Couldn't clear it"); } }));
   } else if (adminTab === "reports") {
     const reports = await store.listReports();
     const jobs = {};
     await Promise.all([...new Set(reports.map((r) => r.jobId))].map(async (id) => { jobs[id] = await store.getJob(id); }));
-    body.innerHTML = reports.length ? `<div class="table">${reports.map((r) => {
+    body.innerHTML = reports.length ? `<div class="adm-list">${reports.map((r) => {
       const j = jobs[r.jobId];
-      const title = j ? `<a href="#/job/${encodeURIComponent(r.jobId)}"><strong>${esc(j.title)}</strong></a> ${statusBadge(j)}` : `<strong class="muted">Job deleted</strong>`;
+      const serious = ["fee", "scam"].includes(r.reason);
       return `
-      <div class="trow">
-        <div>${title}<div class="small">${esc(REPORT_REASONS[r.reason] || r.reason)}</div>${r.details ? `<div class="muted small">“${esc(r.details)}”</div>` : ""}<div class="muted small">${ago(r.createdAt)}</div></div>
-        <div class="actions">${j && j.status !== "closed" ? `<button class="btn btn-danger btn-sm" data-act="closejob" data-id="${esc(r.jobId)}">Close job</button>` : ""}<button class="btn btn-ghost btn-sm" data-act="dismiss" data-id="${esc(r.id)}">Dismiss</button></div>
-      </div>`; }).join("")}</div>` : `<div class="empty"><p>No reports.</p></div>`;
+      <article class="adm-card">
+        <div class="adm-card-main">
+          <div class="adm-tags"><span class="adm-tag ${serious ? "red" : "amber"}">${esc(REPORT_REASONS[r.reason] || r.reason)}</span>${j ? statusBadge(j) : ""}</div>
+          <h3 class="adm-title">${j ? `<a href="#/job/${encodeURIComponent(r.jobId)}">${esc(j.title)}</a>` : `<span class="muted">Job deleted</span>`}</h3>
+          ${r.details ? `<blockquote class="adm-quote">${esc(r.details)}</blockquote>` : ""}
+          <p class="adm-meta">${j ? `${esc(j.employerName || "")}${j.ownerUid ? ` · <a href="#/admin/user/${encodeURIComponent(j.ownerUid)}">Employer profile</a>` : ""} · ` : ""}Reported ${ago(r.createdAt)}</p>
+        </div>
+        <div class="adm-card-actions">${j && j.status !== "closed" ? `<button class="btn btn-danger btn-sm" data-act="closejob" data-id="${esc(r.jobId)}">Close job</button>` : ""}<button class="btn btn-ghost btn-sm" data-act="dismiss" data-id="${esc(r.id)}">Dismiss</button></div>
+      </article>`; }).join("")}</div>` : `<div class="adm-empty">${ADMIN_ICONS.check}<p><strong>All clear.</strong> No reported posts.</p></div>`;
   } else {
     const [list0, ctx] = await Promise.all([store.listByStatus(adminTab), store.adminAll().catch(() => null)]);
     const list = list0.sort((a, b) => b.createdAt - a.createdAt);
@@ -3449,7 +3525,7 @@ async function viewAdmin() {
           ${j.status === "approved" ? `<button class="btn btn-ghost btn-sm" data-act="feature" data-id="${esc(j.id)}" data-on="${j.featured ? 1 : 0}">${j.featured ? "Unfeature" : "Feature"}</button><button class="btn btn-ghost btn-sm" data-act="closejob" data-id="${esc(j.id)}">Close</button>` : ""}
           <button class="btn btn-danger btn-sm" data-act="delete" data-id="${esc(j.id)}">Delete</button>
         </div>
-      </div>`).join("") : `<div class="empty"><p>Nothing here.</p></div>`;
+      </div>`).join("") : `<div class="adm-empty">${ADMIN_ICONS.archive}<p>${adminTab === "pending" ? "<strong>All clear.</strong> No posts waiting for review." : "Nothing here yet."}</p></div>`;
     body.querySelectorAll("details[data-contact]").forEach((d) => d.addEventListener("toggle", async () => {
       if (!d.open || d.dataset.loaded || !d.querySelector(".contact-line")) return; d.dataset.loaded = 1;
       const c = await store.getContact(d.dataset.contact);

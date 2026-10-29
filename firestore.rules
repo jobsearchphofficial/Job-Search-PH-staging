@@ -231,8 +231,9 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastMessageFrom', 'lastMessageText', 'applicantSeenAt'])
                     && request.resource.data.get('lastMessageFrom', '') in [me(), resource.data.get('lastMessageFrom', '')];
       allow update: if signedIn() && resource.data.employerUid == me()
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastMessageFrom', 'lastMessageText', 'employerSeenAt'])
-                    && request.resource.data.get('lastMessageFrom', '') in [me(), resource.data.get('lastMessageFrom', '')];
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt', 'lastMessageFrom', 'lastMessageText', 'employerSeenAt', 'employerWrote'])
+                    && request.resource.data.get('lastMessageFrom', '') in [me(), resource.data.get('lastMessageFrom', '')]
+                    && request.resource.data.get('employerWrote', false) in [true, resource.data.get('employerWrote', false)];
 
       // Deleting an account: that person's details are wiped from their applications and the chat closes.
       // (The email robot deletes these chats completely 30 days later.)
@@ -247,7 +248,7 @@ service cloud.firestore {
                     && request.resource.data.employerDeleted == true
                     && request.resource.data.deletedAt == request.time;
 
-      // Messages between the applicant and the employer. Closes 48 hours after the applicant is declined.
+      // Messages between the applicant and the employer. The employer starts; closes 48 hours after the applicant is declined.
       match /messages/{mid} {
         function app() { return get(/databases/$(database)/documents/applications/$(appId)).data; }
         function party() { return signedIn() && (app().applicantUid == me() || app().employerUid == me()); }
@@ -256,8 +257,15 @@ service cloud.firestore {
               || (app().get('declinedAt', null) != null && request.time < app().declinedAt + duration.value(48, 'h'));
         }
         allow read: if party() || isAdmin();
+        // Jobseekers write once shortlisted (or further), or after the employer has messaged them.
+        function seekerMayWrite() {
+          return app().status in ['shortlisted', 'offered', 'hired', 'offer_declined']
+              || app().get('employerWrote', false) == true
+              || app().get('lastMessageFrom', '') == app().employerUid;
+        }
         allow create: if party() && notBanned()
                       && chatOpen()
+                      && (app().employerUid == me() || seekerMayWrite())
                       && app().get('applicantDeleted', false) != true && app().get('employerDeleted', false) != true
                       && request.resource.data.keys().hasOnly(['fromUid', 'text', 'createdAt', 'photo'])
                       && request.resource.data.fromUid == me()
