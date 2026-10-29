@@ -1285,3 +1285,9 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   .adm-card { flex-direction: column; }
   .adm-card-actions { justify-content: flex-start; }
 }
+/* Confirm password */
+input.ok { border-color: var(--green, #1f9d57); box-shadow: 0 0 0 3px rgba(31, 157, 87, .14); }
+input.bad { border-color: var(--red, #c0392b); box-shadow: 0 0 0 3px rgba(192, 57, 43, .12); }
+.pw-match { margin: 0; min-height: 1.1em; font-size: .82rem; font-weight: 500; }
+.pw-match.ok { color: var(--green, #1f9d57); }
+.pw-match.bad { color: var(--red, #c0392b); }

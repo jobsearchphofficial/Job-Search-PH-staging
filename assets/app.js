@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793266000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793266000";
-import { fitScore, rankApplicants } from "./match.js?v=1793266000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793266000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793267000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793267000";
+import { fitScore, rankApplicants } from "./match.js?v=1793267000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793267000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1261,7 +1261,9 @@ function viewSignIn() {
             ${up && seeker ? `<label for="s-birth">Birthdate</label><span class="date-age"><input id="s-birth" name="birthDate" type="date" max="${maxBirthDate()}" value="${esc(su.birthDate)}"><output id="su-age" class="age-pill ${a != null && a < 18 ? "bad" : ""}">${a != null ? `${a} years old` : "Age"}</output></span><p class="hint">You must be at least 18. Employers see your age, not your birthdate.</p>` : ""}
             <label for="s-email">Email</label><input id="s-email" name="email" type="email" autocomplete="email" required value="${esc(su.email)}">
             <label for="s-pw">Password</label><input id="s-pw" name="pw" type="password" autocomplete="${up ? "new-password" : "current-password"}" required minlength="6">
-            ${up ? `<p class="hint">At least 6 characters.</p>` : `<button type="button" class="linkbtn" id="forgot">Forgot password?</button>`}
+            ${up ? `<p class="hint">At least 6 characters.</p>
+            <label for="s-pw2">Confirm password</label><input id="s-pw2" name="pw2" type="password" autocomplete="new-password" required minlength="6">
+            <p class="pw-match" id="pw-match" aria-live="polite"></p>` : `<button type="button" class="linkbtn" id="forgot">Forgot password?</button>`}
             <p id="auth-error" class="error" hidden></p>
             <button class="btn btn-primary btn-block" type="submit">${up ? "Create account" : "Sign in"}</button>
           </form>
@@ -1276,6 +1278,15 @@ function viewSignIn() {
     $("#google").addEventListener("click", () => social(() => store.signInGoogle()));
     $("#facebook")?.addEventListener("click", () => social(() => store.signInFacebook({ redirect: IN_APP_BROWSER })));
     store.redirectError().then((e) => { if (e) err(authError(e)); });
+    // Confirm password: green when both match, red when they don't (only once they've started typing it).
+    const paintMatch = () => {
+      const a = $("#s-pw")?.value || "", b = $("#s-pw2")?.value || "", el = $("#pw-match"); if (!el) return;
+      const on = b.length > 0, ok = on && a === b;
+      $("#s-pw2").classList.toggle("ok", ok); $("#s-pw2").classList.toggle("bad", on && !ok);
+      el.className = `pw-match ${on ? (ok ? "ok" : "bad") : ""}`;
+      el.textContent = !on ? "" : ok ? "✓ Passwords match" : "✗ Passwords don't match";
+    };
+    $("#s-pw")?.addEventListener("input", paintMatch); $("#s-pw2")?.addEventListener("input", paintMatch);
     $("#s-birth")?.addEventListener("input", (e) => {
       const n = ageFrom(e.target.value); const out = $("#su-age");
       out.textContent = n == null ? "Age" : `${n} years old`; out.classList.toggle("bad", n != null && n < 18);
@@ -1305,6 +1316,7 @@ function viewSignIn() {
       }
       if (!email) return bad("Enter your email.", f.email);
       if (pw.length < 6) return bad("Use a password with at least 6 characters.", f.pw);
+      if (up && f.pw2.value !== pw) return bad(f.pw2.value ? "The two passwords don't match." : "Type your password again to confirm it.", f.pw2);
       btn.disabled = true;
       try {
         if (up) {
