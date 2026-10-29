@@ -1181,3 +1181,46 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .cmp-make .cmp-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; margin-top: 10px; }
 .cmp-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .an-tiles + .cmp-list { margin-top: 12px; }
+
+/* ---------- Sign-up: type, first / middle / last name ---------- */
+.auth-card.signup { max-width: 520px; }
+.su-role { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.su-opt { position: relative; cursor: pointer; display: flex; }
+.su-opt input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.su-opt > span { flex: 1; display: grid; gap: 3px; padding: 13px 14px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--card); transition: .12s; }
+.su-opt svg { width: 22px; height: 22px; color: var(--indigo); margin-bottom: 4px; }
+.su-opt strong { font-size: .92rem; color: var(--navy); }
+.su-opt em { font-style: normal; font-size: .78rem; color: var(--slate-soft); line-height: 1.35; }
+.su-opt:hover > span { border-color: var(--line-strong); }
+.su-opt input:checked + span { border-color: var(--indigo); background: var(--indigo-soft); box-shadow: inset 0 0 0 1px var(--indigo); }
+.su-opt input:focus-visible + span { outline: 3px solid rgba(61, 79, 214, .35); outline-offset: 2px; }
+.name-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.name-row label { display: grid; gap: 6px; align-content: start; }
+.auth-form .name-row label { margin-top: 0; }
+@media (max-width: 560px) { .name-row { grid-template-columns: 1fr 1fr; } .name-row label:last-child { grid-column: 1 / -1; } }
+@media (max-width: 380px) { .su-role { grid-template-columns: 1fr; } }
+.known-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 14px; background: var(--bg); }
+.known-row > div { display: grid; gap: 2px; }
+.known-row .label { margin: 0; font-size: .78rem; color: var(--slate-soft); }
+.known-row .hint { margin: 2px 0 0; }
+
+/* ---------- City picker (no dropdown menu) ---------- */
+.picker { position: relative; }
+.picker-btn { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 46px; padding: 11px 13px; font: inherit; color: var(--navy); background: var(--card); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; text-align: left; }
+.picker-btn:hover { border-color: var(--line-strong); }
+.picker-btn[aria-expanded="true"] { border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(61, 79, 214, .14); }
+.picker-btn svg { flex: none; color: var(--slate-soft); transition: transform .15s; }
+.picker-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.picker-panel { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px); min-width: min(340px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 10px; display: grid; gap: 8px; }
+.picker-list { max-height: 280px; overflow-y: auto; display: grid; gap: 6px; padding: 2px; }
+.picker-group { margin: 4px 2px 0; font-size: .74rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--slate-soft); }
+.picker-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.picker-opt { font: inherit; font-size: .86rem; padding: 7px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--navy); cursor: pointer; }
+.picker-opt:hover { border-color: var(--line-strong); }
+.picker-opt.on { border-color: var(--indigo); background: var(--indigo-soft); color: var(--indigo-deep); box-shadow: inset 0 0 0 1px var(--indigo); }
+.picker-opt[hidden], .picker-opts[hidden], .picker-group[hidden] { display: none; }
+.picker-none { margin: 2px; }
+/* Chat header: name and small badges on one line, badges only as wide as their text */
+.chat-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.chat-name strong { margin-right: 2px; }
+.chat-name .vbadge, .chat-name .fbadge { margin: 0; flex: none; }

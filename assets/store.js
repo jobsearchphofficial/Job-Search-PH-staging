@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793254020";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793262000";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -235,7 +235,7 @@ export const store = {
     try { await F.setDoc(ref, payload, { merge: true }); }
     catch (e) { // older published rules don't know the newest optional fields yet: save without them
       if (e.code !== "permission-denied") throw e;
-      ["src", "jobCategoryOther", "fbUrl", "bizReg", "signIn", "emailVerified", "alerts", "alertsScope", "alertsToken", "emailNotify"].forEach((k) => delete payload[k]);
+      ["src", "jobCategoryOther", "fbUrl", "bizReg", "signIn", "emailVerified", "alerts", "alertsScope", "alertsToken", "emailNotify", "firstName", "middleName", "lastName"].forEach((k) => delete payload[k]);
       await F.setDoc(ref, payload, { merge: true });
     }
     const extra = await loadProfile(auth.currentUser);

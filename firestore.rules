@@ -48,9 +48,13 @@ service cloud.firestore {
           'role','fullName','phone','city','messenger','consent','createdAt','updatedAt',
           'birthDate','gender','jobCategories','jobTypes','experienceYears','skills','workHistory',
           'education','availability','resumeUrl','resumeFileUrl','resumeFileName','companyName','photo','email','src','jobCategoryOther',
-          'fbUrl','bizReg','signIn','emailVerified','alerts','alertsScope','alertsToken','emailNotify'])
+          'fbUrl','bizReg','signIn','emailVerified','alerts','alertsScope','alertsToken','emailNotify',
+          'firstName','middleName','lastName'])
         && d.role in ['jobseeker', 'employer']
         && str(d.fullName, 2, 80)
+        && optStr(d.get('firstName', null), 40)
+        && optStr(d.get('middleName', null), 40)
+        && optStr(d.get('lastName', null), 40)
         && str(d.phone, 7, 20)
         && str(d.city, 1, 60)
         && d.consent == true

@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793254020";
-import { IS_STAGING } from "./firebase-config.js?v=1793254020";
-import { fitScore, rankApplicants } from "./match.js?v=1793254020";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793254020";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793262000";
+import { IS_STAGING } from "./firebase-config.js?v=1793262000";
+import { fitScore, rankApplicants } from "./match.js?v=1793262000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793262000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -182,7 +182,7 @@ const STAR = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.6 5
 function founderBadge(uid, role, { short = false } = {}) {
   if (!uid || !FOUNDERS[uid]) return "";
   const label = role === "employer" ? "Founding employer" : "Founding jobseeker";
-  return `<span class="fbadge ${short ? "short" : ""}" title="${label}: one of the first 100 members of Job Search PH">${STAR}${label}</span>`;
+  return `<span class="fbadge ${short ? "short" : ""}" title="${label}: one of the first 100 members of Job Search PH">${STAR}${short ? "Founder" : label}</span>`;
 }
 
 /* ---------------- Verified employer (checked by an admin) ---------------- */
@@ -432,6 +432,118 @@ const peso = (n) => "₱" + Number(n).toLocaleString("en-PH");
 const nl2br = (s) => esc(s).replace(/\n/g, "<br>");
 const opts = (list, sel) => list.map((c) => `<option ${sel === c ? "selected" : ""}>${esc(c)}</option>`).join("");
 const firstName = (n) => String(n || "").trim().split(/\s+/)[0] || "Profile";
+// Names are typed as first / middle / last. "maria santos" or "MARIA SANTOS" becomes "Maria Santos"; mixed case is kept as typed.
+const tidyName = (s) => {
+  s = String(s || "").trim().replace(/\s+/g, " ");
+  if (s && (s === s.toLowerCase() || s === s.toUpperCase())) s = s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  return s;
+};
+const joinName = (f, m, l) => [f, m, l].map(tidyName).filter(Boolean).join(" ");
+const hasName = (s) => /\p{L}{2,}/u.test(String(s || ""));
+// Older profiles only have one full-name field: last word is the last name, a lone initial before it is the middle name.
+function splitName(full) {
+  const w = String(full || "").trim().split(/\s+/).filter(Boolean);
+  if (w.length < 2) return { firstName: w[0] || "", middleName: "", lastName: "" };
+  const lastName = w.pop();
+  const middleName = w.length > 1 && /^\p{L}\.?$/u.test(w[w.length - 1]) ? w.pop() : "";
+  return { firstName: w.join(" "), middleName, lastName };
+}
+const maxBirthDate = () => { const d = new Date(); d.setFullYear(d.getFullYear() - 18); return d.toISOString().slice(0, 10); };
+// What they typed on "Create account" (type, name, birthdate), kept until the profile is saved,
+// so they don't type it again, even after leaving to confirm their email in another tab.
+const SIGNUP_KEY = "jsph:signup";
+let signupMem = null;
+function saveSignupInfo(d) { signupMem = { ...d, at: Date.now() }; try { localStorage.setItem(SIGNUP_KEY, JSON.stringify(signupMem)); } catch {} }
+function signupInfo(email) {
+  let d = signupMem;
+  if (!d) { try { d = JSON.parse(localStorage.getItem(SIGNUP_KEY) || "null"); } catch {} }
+  return d && d.email && d.email === String(email || "").toLowerCase() && Date.now() - (d.at || 0) < 30 * 864e5 ? d : null;
+}
+function clearSignupInfo() { signupMem = null; try { localStorage.removeItem(SIGNUP_KEY); } catch {} }
+const ROLE_ICONS = {
+  jobseeker: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 7V5.8A1.8 1.8 0 0 1 10.3 4h3.4a1.8 1.8 0 0 1 1.8 1.8V7" stroke="currentColor" stroke-width="1.7"/><path d="M3 12.5h18" stroke="currentColor" stroke-width="1.7"/><path d="M11 12.5v1.6h2v-1.6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>`,
+  employer: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19v-8.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12.2" r="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M8.3 18.2a3.9 3.9 0 0 1 7.4 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
+};
+// First / middle / last name inputs (sign-up and profile).
+const nameFields = (p = {}, { labels = true } = {}) => `
+  <div class="name-row">
+    <label>First name${labels ? " *" : ""}<input name="firstName" required maxlength="40" autocomplete="given-name" placeholder="e.g. Maria" value="${esc(p.firstName || "")}"></label>
+    <label>Middle name<input name="middleName" maxlength="40" autocomplete="additional-name" placeholder="Optional" value="${esc(p.middleName || "")}"></label>
+    <label>Last name${labels ? " *" : ""}<input name="lastName" required maxlength="40" autocomplete="family-name" placeholder="e.g. Santos" value="${esc(p.lastName || "")}"></label>
+  </div>`;
+// Checks the three name boxes; returns an error message, or "".
+function nameError(f, m, l) {
+  if (!hasName(f)) return "Enter your first name.";
+  if (!hasName(l)) return "Enter your last name.";
+  if (joinName(f, m, l).length > 80) return "That name is too long. Shorten the middle name.";
+  return "";
+}
+// Tap-to-pick buttons instead of dropdown menus. Optional groups can be cleared by tapping the picked one again.
+const choicePills = (name, items, selected, { optional = true } = {}) => `<div class="pills" role="radiogroup" ${optional ? "data-optional" : ""}>${items.map((it) => {
+  const [v, label] = Array.isArray(it) ? it : [it, it];
+  return `<label class="pill"><input type="radio" name="${name}" value="${esc(String(v))}" ${String(selected ?? "") === String(v) ? "checked" : ""}><span>${esc(label)}</span></label>`;
+}).join("")}</div>`;
+function bindOptionalPills(root) {
+  root.querySelectorAll(".pills[data-optional] input[type=radio]").forEach((r) => {
+    r.addEventListener("pointerdown", () => { r.dataset.was = r.checked ? "1" : ""; });
+    r.closest("label").addEventListener("keydown", () => { r.dataset.was = ""; });
+    r.addEventListener("click", () => { if (r.dataset.was === "1") { r.checked = false; r.dataset.was = ""; r.dispatchEvent(new Event("change", { bubbles: true })); } });
+  });
+}
+// Stored as years (lowest value of the range), so job requirements ("1+ year") still compare as numbers.
+const EXPERIENCE_BUCKETS = [[0, "No experience"], [0.1, "Under 3 months"], [0.25, "3–6 months"], [0.5, "6–12 months"], [1, "1–2 years"], [2, "2–5 years"], [5, "5+ years"], [10, "10+ years"]];
+// "6–12 months"; older profiles saved a plain number of years ("3 years").
+const expLabel = (n) => {
+  if (n === "" || n == null || !Number.isFinite(Number(n))) return "";
+  const b = EXPERIENCE_BUCKETS.find(([v]) => v === Number(n));
+  return b ? b[1] : `${Number(n)} year${Number(n) === 1 ? "" : "s"}`;
+};
+const expBucket = (n) => (n === "" || n == null || !Number.isFinite(Number(n)) ? "" : String([...EXPERIENCE_BUCKETS].reverse().find(([v]) => Number(n) >= v)?.[0] ?? 0));
+const CITY_GROUPS = [["Cities", CITIES.filter((c) => / City$/.test(c))], ["Towns", CITIES.filter((c) => !/ City$/.test(c) && c !== "Other")], ["", ["Other"]]];
+// Searchable city / municipality picker. The value lives in a hidden input, so forms read it like a normal field.
+const cityPicker = (name, value) => `
+  <div class="picker" data-picker>
+    <input type="hidden" name="${name}" value="${esc(value || "")}">
+    <button type="button" class="picker-btn" aria-expanded="false"><span class="picker-val">${value ? esc(value) : `<span class="muted">Choose your city or town</span>`}</span><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m5 8 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="picker-panel" hidden>
+      <input type="search" class="picker-search" placeholder="Search, e.g. Silay" aria-label="Search cities and towns" autocomplete="off">
+      <div class="picker-list">${CITY_GROUPS.map(([g, list]) => `${g ? `<p class="picker-group">${g}</p>` : ""}<div class="picker-opts">${list.map((c) => `<button type="button" class="picker-opt ${c === value ? "on" : ""}" data-v="${esc(c)}">${esc(c)}</button>`).join("")}</div>`).join("")}
+        <p class="picker-none muted small" hidden>No match. Pick <strong>Other</strong>.</p></div>
+    </div>
+  </div>`;
+function bindPickers(root) {
+  root.querySelectorAll("[data-picker]").forEach((pk) => {
+    const hid = pk.querySelector("input[type=hidden]"), btn = pk.querySelector(".picker-btn"), panel = pk.querySelector(".picker-panel"), q = pk.querySelector(".picker-search");
+    const paint = () => {
+      pk.querySelector(".picker-val").innerHTML = hid.value ? esc(hid.value) : `<span class="muted">Choose your city or town</span>`;
+      pk.querySelectorAll(".picker-opt").forEach((o) => o.classList.toggle("on", o.dataset.v === hid.value));
+    };
+    const open = (on) => {
+      panel.hidden = !on; btn.setAttribute("aria-expanded", on);
+      if (on) { q.value = ""; filter(); setTimeout(() => q.focus({ preventScroll: true })); }
+    };
+    const filter = () => {
+      const t = q.value.trim().toLowerCase(); let any = false;
+      pk.querySelectorAll(".picker-opt").forEach((o) => { const hit = !t || o.dataset.v.toLowerCase().includes(t); o.hidden = !hit; any = any || (hit && o.dataset.v !== "Other"); });
+      pk.querySelectorAll(".picker-opts").forEach((g) => { const vis = [...g.children].some((o) => !o.hidden); g.hidden = !vis; if (g.previousElementSibling?.classList.contains("picker-group")) g.previousElementSibling.hidden = !vis; });
+      pk.querySelector(".picker-none").hidden = any || !t;
+      if (!any && t) pk.querySelector('[data-v="Other"]').hidden = false, pk.querySelector('[data-v="Other"]').parentElement.hidden = false;
+    };
+    btn.addEventListener("click", () => open(panel.hidden));
+    q.addEventListener("input", filter);
+    q.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { open(false); btn.focus(); }
+      if (e.key === "Enter") { e.preventDefault(); pk.querySelector(".picker-opt:not([hidden])")?.click(); }
+    });
+    pk.addEventListener("click", (e) => {
+      const o = e.target.closest(".picker-opt"); if (!o) return;
+      hid.value = o.dataset.v; paint(); open(false); btn.classList.remove("invalid"); btn.focus();
+      hid.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    document.addEventListener("click", (e) => { if (!panel.hidden && !pk.contains(e.target)) open(false); });
+    pk.sync = paint; // after a saved draft is put back
+  });
+}
 
 function salaryText(j) {
   if (!j.salaryMin && !j.salaryMax) return "Salary negotiable";
@@ -1113,12 +1225,26 @@ function viewSignIn() {
   document.title = "Sign in | Job Search PH";
   if (getAuthState().user) return finishAuthFlow();
   let mode = startSignup ? "signup" : "signin";
+  // Sign-up answers survive switching between "Sign in" and "Create account".
+  const su = { role: signupIntent || "", firstName: "", middleName: "", lastName: "", birthDate: "", email: "" };
+  const keep = () => {
+    const f = $("#email-form"); if (!f) return;
+    ["firstName", "middleName", "lastName", "birthDate", "email"].forEach((k) => { if (f[k]) su[k] = f[k].value; });
+    const r = app.querySelector("[name=su-role]:checked"); if (r) su.role = r.value;
+  };
   const draw = () => {
+    const up = mode === "signup";
+    const seeker = su.role === "jobseeker";
+    const a = ageFrom(su.birthDate);
     app.innerHTML = `
       <div class="auth-wrap">
-        <div class="auth-card">
-          <h1>${mode === "signup" ? "Create your free account" : esc(signInPurpose || "Sign in")}</h1>
-          <p class="muted">${mode === "signup" ? "For jobseekers and employers. It's free." : "Sign in to apply for jobs or manage your posts."}</p>
+        <div class="auth-card ${up ? "signup" : ""}">
+          <h1>${up ? "Create your free account" : esc(signInPurpose || "Sign in")}</h1>
+          <p class="muted">${up ? "For jobseekers and employers. It's free." : "Sign in to apply for jobs or manage your posts."}</p>
+          ${up ? `<div class="su-role" role="radiogroup" aria-label="I'm…">
+            ${["jobseeker", "employer"].map((k) => `<label class="su-opt"><input type="radio" name="su-role" value="${k}" ${su.role === k ? "checked" : ""}>
+              <span>${ROLE_ICONS[k]}<strong>${k === "jobseeker" ? "I'm looking for work" : "I'm hiring"}</strong><em>${k === "jobseeker" ? "Kasambahay, yaya, driver, cook…" : "Household or business"}</em></span></label>`).join("")}
+          </div>` : ""}
           ${IN_APP_BROWSER ? `<p class="notice small">You opened this inside Facebook or Messenger, which blocks Google sign-in. Use <strong>Continue with Facebook</strong> or email below, or tap ⋯ and choose <strong>Open in browser</strong>.</p>` : ""}
           <button class="btn btn-ghost btn-block btn-google" id="google" ${IN_APP_BROWSER ? "disabled" : ""}>
             <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
@@ -1130,37 +1256,63 @@ function viewSignIn() {
           </button>
           <div class="divider"><span>or use email</span></div>
           <form id="email-form" class="auth-form" novalidate>
-            ${mode === "signup" ? `<label for="s-name">Full name (first and last)</label><input id="s-name" name="name" autocomplete="name" required maxlength="80" placeholder="e.g. Maria Santos">` : ""}
-            <label for="s-email">Email</label><input id="s-email" name="email" type="email" autocomplete="email" required>
-            <label for="s-pw">Password</label><input id="s-pw" name="pw" type="password" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" required minlength="6">
-            ${mode === "signup" ? `<p class="hint">At least 6 characters.</p>` : `<button type="button" class="linkbtn" id="forgot">Forgot password?</button>`}
+            ${up ? nameFields(su, { labels: false }) : ""}
+            ${up && seeker ? `<label for="s-birth">Birthdate</label><span class="date-age"><input id="s-birth" name="birthDate" type="date" max="${maxBirthDate()}" value="${esc(su.birthDate)}"><output id="su-age" class="age-pill ${a != null && a < 18 ? "bad" : ""}">${a != null ? `${a} years old` : "Age"}</output></span><p class="hint">You must be at least 18. Employers see your age, not your birthdate.</p>` : ""}
+            <label for="s-email">Email</label><input id="s-email" name="email" type="email" autocomplete="email" required value="${esc(su.email)}">
+            <label for="s-pw">Password</label><input id="s-pw" name="pw" type="password" autocomplete="${up ? "new-password" : "current-password"}" required minlength="6">
+            ${up ? `<p class="hint">At least 6 characters.</p>` : `<button type="button" class="linkbtn" id="forgot">Forgot password?</button>`}
             <p id="auth-error" class="error" hidden></p>
-            <button class="btn btn-primary btn-block" type="submit">${mode === "signup" ? "Create account" : "Sign in"}</button>
+            <button class="btn btn-primary btn-block" type="submit">${up ? "Create account" : "Sign in"}</button>
           </form>
-          <p class="switch">${mode === "signup" ? `Already have an account? <button class="linkbtn" id="toggle">Sign in</button>` : `New here? <button class="linkbtn" id="toggle">Create a free account</button>`}</p>
+          <p class="switch">${up ? `Already have an account? <button class="linkbtn" id="toggle">Sign in</button>` : `New here? <button class="linkbtn" id="toggle">Create a free account</button>`}</p>
         </div>
       </div>`;
-    const err = (m) => { const el = $("#auth-error"); el.textContent = m; el.hidden = !m; };
-    $("#toggle").addEventListener("click", () => { mode = mode === "signup" ? "signin" : "signup"; startSignup = mode === "signup"; draw(); });
-    $("#google").addEventListener("click", async () => { try { await store.signInGoogle(); } catch (e) { err(authError(e)); } });
-    $("#facebook").addEventListener("click", async () => { try { await store.signInFacebook({ redirect: IN_APP_BROWSER }); } catch (e) { err(authError(e)); } });
+    const err = (m) => { const el = $("#auth-error"); el.textContent = m; el.hidden = !m; if (m) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
+    $("#toggle").addEventListener("click", () => { keep(); mode = mode === "signup" ? "signin" : "signup"; startSignup = mode === "signup"; draw(); });
+    // Picking "looking for work" adds the birthdate box; the rest of what they typed stays.
+    app.querySelectorAll("[name=su-role]").forEach((r) => r.addEventListener("change", () => { keep(); signupIntent = su.role; err(""); draw(); }));
+    const social = async (fn) => { keep(); if (up && su.role) signupIntent = su.role; try { await fn(); } catch (e) { err(authError(e)); } };
+    $("#google").addEventListener("click", () => social(() => store.signInGoogle()));
+    $("#facebook").addEventListener("click", () => social(() => store.signInFacebook({ redirect: IN_APP_BROWSER })));
     store.redirectError().then((e) => { if (e) err(authError(e)); });
+    $("#s-birth")?.addEventListener("input", (e) => {
+      const n = ageFrom(e.target.value); const out = $("#su-age");
+      out.textContent = n == null ? "Age" : `${n} years old`; out.classList.toggle("bad", n != null && n < 18);
+    });
     $("#forgot")?.addEventListener("click", async () => {
       const email = $("#s-email").value.trim();
       if (!email) return err("Type your email above first, then tap Forgot password.");
       try { await store.resetPassword(email); err(""); toast("If there's an account with that email, we sent a reset link. Check your inbox and Spam."); } catch (e) { err(authError(e)); }
     });
+    $("#email-form").addEventListener("input", (e) => e.target.classList?.remove("invalid"));
     $("#email-form").addEventListener("submit", async (e) => {
       e.preventDefault(); err("");
       const f = e.target; const btn = f.querySelector("button[type=submit]");
+      const bad = (m, el) => { err(m); if (el) { el.classList.add("invalid"); el.focus(); } };
+      keep();
       const email = f.email.value.trim(), pw = f.pw.value;
-      if (mode === "signup" && !isFullName(f.name.value)) return err("Enter your first and last name, e.g. Maria Santos.");
-      if (!email) return err("Enter your email.");
-      if (pw.length < 6) return err("Use a password with at least 6 characters.");
+      if (up) {
+        if (!su.role) return bad("Choose \u201cI'm looking for work\u201d or \u201cI'm hiring\u201d at the top.");
+        const ne = nameError(su.firstName, su.middleName, su.lastName);
+        if (ne) return bad(ne, hasName(su.firstName) ? f.lastName : f.firstName);
+        if (su.role === "jobseeker") {
+          const n = ageFrom(su.birthDate);
+          if (!su.birthDate || n === null) return bad("Enter your birthdate.", f.birthDate);
+          if (n < 18) return bad("You must be at least 18 years old to use Job Search PH as a jobseeker.", f.birthDate);
+          if (n > 90) return bad("Check your birthdate.", f.birthDate);
+        }
+      }
+      if (!email) return bad("Enter your email.", f.email);
+      if (pw.length < 6) return bad("Use a password with at least 6 characters.", f.pw);
       btn.disabled = true;
       try {
-        if (mode === "signup") { pendingName = f.name.value.trim(); await store.signUpEmail(email, pw, pendingName); }
-        else await store.signInEmail(email, pw);
+        if (up) {
+          const parts = { firstName: tidyName(su.firstName), middleName: tidyName(su.middleName), lastName: tidyName(su.lastName) };
+          pendingName = joinName(parts.firstName, parts.middleName, parts.lastName);
+          signupIntent = su.role;
+          saveSignupInfo({ email: email.toLowerCase(), role: su.role, ...parts, birthDate: su.role === "jobseeker" ? su.birthDate : "" });
+          await store.signUpEmail(email, pw, pendingName);
+        } else await store.signInEmail(email, pw);
       } catch (ex) { err(authError(ex)); btn.disabled = false; }
     });
   };
@@ -1175,13 +1327,19 @@ function viewProfile(focus) {
   const { user, profile } = getAuthState();
   if (!user) return goSignIn("Sign in to set up your profile");
   const p = { ...(profile || {}) };
-  if (!p.fullName) p.fullName = pendingName || user.displayName || "";
   const isNew = !profile;
-  let role = p.role || (isNew ? signupIntent : "") || "";
+  const su = isNew ? signupInfo(user.email) : null; // what they typed on "Create account"
+  if (!p.fullName) p.fullName = pendingName || user.displayName || "";
+  if (su) { Object.assign(p, { firstName: su.firstName, middleName: su.middleName, lastName: su.lastName }); if (su.birthDate && !p.birthDate) p.birthDate = su.birthDate; }
+  if (!p.firstName && !p.lastName) Object.assign(p, splitName(p.fullName));
+  let role = p.role || (isNew ? signupIntent || su?.role : "") || "";
   if (isNew && !role) { try { const k = draftKey("role"); role = (k && localStorage.getItem(k)) || ""; } catch {} }
-  const guided = isNew && !!signupIntent; // came from "Create a profile", "Apply" or "Post a job"
+  const guided = isNew && !!(signupIntent || su?.role); // came from "Create account", "Create a profile", "Apply" or "Post a job"
+  // New profile: the name (and a jobseeker's birthdate) given at sign-up aren't asked again. "Edit" shows the boxes.
+  const knownName = isNew && !nameError(p.firstName, p.middleName, p.lastName);
+  const knownBirth = isNew && !!su?.birthDate && (ageFrom(su.birthDate) ?? 0) >= 18;
 
-  const maxBirth = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 18); return d.toISOString().slice(0, 10); })();
+  const maxBirth = maxBirthDate();
   const chips = (name, list, selected = []) => `<div class="chips">${list.map((c) => `
     <label class="chip"><input type="checkbox" name="${name}" value="${esc(c)}" ${selected.includes(c) ? "checked" : ""}><span>${esc(c)}</span></label>`).join("")}</div>`;
 
@@ -1189,13 +1347,17 @@ function viewProfile(focus) {
     <form id="profile-form" class="form" novalidate>
       <fieldset>
         <legend>About you</legend>
-        <label>Full name (first and last) *<input name="fullName" required minlength="5" maxlength="80" autocomplete="name" placeholder="e.g. Maria Santos" value="${esc(p.fullName)}"></label>
+        ${knownName ? `<div class="known-row" id="known-row"><div><span class="label">${su ? "From sign-up" : "Your name"}</span>
+            <span><strong>${esc(joinName(p.firstName, p.middleName, p.lastName))}</strong>${role === "jobseeker" && knownBirth ? `<span class="muted"> · ${ageFrom(p.birthDate)} years old</span>` : ""}</span>
+            <span class="hint">You can change ${role === "jobseeker" && knownBirth ? "these" : "this"} anytime in your profile.</span></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="known-edit">Edit</button></div>` : ""}
+        <div data-known ${knownName ? "hidden" : ""}>${nameFields(p)}</div>
         <div class="row">
           <label>Mobile number *<input name="phone" required inputmode="tel" autocomplete="tel" placeholder="0917 123 4567" value="${esc(p.phone)}"></label>
-          <label>City / municipality *<select name="city" required><option value="">Choose…</option>${opts(CITIES, p.city)}</select></label>
+          <div class="fld-city"><span class="label">City / municipality *</span>${cityPicker("city", p.city)}</div>
         </div>
         <div class="row">
-          ${role === "jobseeker" ? `<label>Birthdate *<span class="date-age"><input name="birthDate" type="date" required max="${maxBirth}" value="${esc(p.birthDate)}"><output id="age-out" class="age-pill">${ageFrom(p.birthDate) != null ? `${ageFrom(p.birthDate)} years old` : "Age"}</output></span><span class="hint">You must be at least 18. Employers see your age, not your birthdate.</span></label>`
+          ${role === "jobseeker" ? `<label ${knownBirth ? "data-known hidden" : ""}>Birthdate *<span class="date-age"><input name="birthDate" type="date" required max="${maxBirth}" value="${esc(p.birthDate)}"><output id="age-out" class="age-pill">${ageFrom(p.birthDate) != null ? `${ageFrom(p.birthDate)} years old` : "Age"}</output></span><span class="hint">You must be at least 18. Employers see your age, not your birthdate.</span></label>`
             : `<label>Household or business name<input name="companyName" maxlength="100" placeholder="e.g. Reyes Family or Inasal Express" value="${esc(p.companyName)}"></label>`}
           ${role === "jobseeker" ? `<label>Facebook profile (optional)<input name="messenger" type="url" inputmode="url" maxlength="100" placeholder="https://facebook.com/yourname" value="${esc(p.messenger)}"><span class="hint">Employers can message you on Messenger from this.</span></label>` : ""}
         </div>
@@ -1218,29 +1380,23 @@ function viewProfile(focus) {
         <legend>Work you're looking for</legend>
         <div><span class="label">Jobs you want (up to 5)</span>${chips("jobCategories", CATEGORIES, p.jobCategories)}
           <label id="jc-other" ${(p.jobCategories || []).includes("Other") ? "" : "hidden"}>What other job are you looking for?<input name="jobCategoryOther" maxlength="40" placeholder="e.g. Tutor, Massage therapist, Farm worker" value="${esc(p.jobCategoryOther || "")}"><span class="hint">This helps us add new job types.</span></label></div>
-        <div><span class="label">Arrangement</span>${chips("jobTypes", TYPES, p.jobTypes)}</div>
-        <div class="row">
-          <label>Years of experience<input name="experienceYears" type="number" min="0" max="60" inputmode="numeric" value="${esc(p.experienceYears ?? "")}"></label>
-          <label>Availability<select name="availability"><option value="">Choose…</option>${opts(AVAILABILITY, p.availability)}</select></label>
-        </div>
+        <div><span class="label">Preferred arrangement <span class="muted small">(pick any)</span></span>${chips("jobTypes", TYPES, p.jobTypes)}</div>
+        <div><span class="label">Years of experience</span>${choicePills("experienceYears", EXPERIENCE_BUCKETS, expBucket(p.experienceYears))}</div>
+        <div><span class="label">When can you start?</span>${choicePills("availability", AVAILABILITY, p.availability)}</div>
       </fieldset>
       <fieldset id="pf-emails">
         <legend>Job alerts by email</legend>
         <label class="check"><input type="checkbox" name="alerts" ${p.alerts ? "checked" : ""}>
           <span>Email me when new jobs match the jobs I picked above</span></label>
-        <label id="alerts-scope" ${p.alerts ? "" : "hidden"}>Where<select name="alertsScope">
-          <option value="city" ${p.alertsScope !== "all" ? "selected" : ""}>Only in my city / municipality</option>
-          <option value="all" ${p.alertsScope === "all" ? "selected" : ""}>Anywhere in Negros Occidental</option></select>
-          <span class="hint">At most one email a day${user.email ? `, sent to <strong>${esc(user.email)}</strong>` : ""}. Every email has an unsubscribe link.${getAuthState().mustConfirmEmail ? " Alerts start once you confirm your email (see the top of this page)." : ""}</span></label>
+        <div id="alerts-scope" ${p.alerts ? "" : "hidden"}><span class="label">Where</span>${choicePills("alertsScope", [["city", "Only in my city / town"], ["all", "Anywhere in Negros Occidental"]], p.alertsScope === "all" ? "all" : "city", { optional: false })}
+          <span class="hint">We'll keep you posted when a job opportunity that fits you opens up ;) At most one email a day${user.email ? `, to <strong>${esc(user.email)}</strong>` : ""}, and you can stop them anytime.${getAuthState().mustConfirmEmail ? " Alerts start once you confirm your email (see the top of this page)." : ""}</span></div>
       </fieldset>
       <fieldset>
         <legend>Experience &amp; resume</legend>
         <label>Skills<textarea name="skills" rows="2" maxlength="1000" placeholder="e.g. cooking Filipino dishes, ironing, caring for toddlers, basic first aid">${esc(p.skills)}</textarea></label>
         <label>Work history<textarea name="workHistory" rows="4" maxlength="3000" placeholder="One job per line, e.g.&#10;2022–2024 · Kasambahay · Santos family, Bacolod&#10;2020–2022 · Kitchen helper · Inasal stall, Silay">${esc(p.workHistory)}</textarea></label>
-        <div class="row">
-          <label>Highest education<select name="eduLevel"><option value="">Choose…</option>${opts(EDUCATION_LEVELS, splitEdu(p.education)[0])}</select></label>
-          <label>School (optional)<input name="eduSchool" maxlength="200" placeholder="e.g. Bacolod City National High School" value="${esc(splitEdu(p.education)[1])}"></label>
-        </div>
+        <div><span class="label">Highest education</span>${choicePills("eduLevel", EDUCATION_LEVELS, splitEdu(p.education)[0])}</div>
+        <label>School (optional)<input name="eduSchool" maxlength="200" placeholder="e.g. Bacolod City National High School" value="${esc(splitEdu(p.education)[1])}"></label>
         <label>Resume link (optional)<input name="resumeUrl" type="url" maxlength="500" placeholder="https://drive.google.com/…" value="${esc(p.resumeUrl)}"><span class="hint">A Google Drive or other link. Set sharing to "Anyone with the link".</span></label>
         ${uploadsEnabled ? `<label>Upload resume (optional)<input name="resumeFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp"><span class="hint">PDF or photo, up to 5 MB.${p.resumeFileName ? ` Current file: <a href="${esc(p.resumeFileUrl)}" target="_blank" rel="noopener">${esc(p.resumeFileName)}</a>` : ""}</span></label>` : ""}
       </fieldset>` : ""}
@@ -1251,6 +1407,7 @@ function viewProfile(focus) {
           <button type="button" class="btn btn-ghost btn-sm" id="fb-link" data-on="${fbOn ? 1 : 0}">${fbOn ? "Remove" : "Connect Facebook"}</button></div>
         <span class="hint">${fbOn ? "You can sign in with Facebook or your other method." : "Sign in faster with Facebook next time. We never post anything to your Facebook."}</span>
       </fieldset>`; })() : ""}
+      ${role === "jobseeker" ? strengthCard(p) : ""}
       <label class="check"><input type="checkbox" name="consent" ${profile?.consent ? "checked" : ""}>
         <span>${role === "jobseeker" ? "I agree that my profile is shared with employers when I apply to their jobs." : "I agree to only post real jobs and to use applicants' details only for hiring."} I accept the <a href="#/terms" target="_blank">Terms</a> and <a href="#/privacy" target="_blank">Privacy notice</a>.</span></label>
       <p id="form-error" class="error" hidden></p>
@@ -1262,8 +1419,9 @@ function viewProfile(focus) {
 
   const collect = () => {
     const f = $("#profile-form"); if (!f) return;
-    ["fullName", "phone", "city", "messenger", "birthDate", "companyName", "fbUrl", "bizReg", "experienceYears", "availability", "skills", "workHistory", "resumeUrl"]
+    ["firstName", "middleName", "lastName", "phone", "city", "messenger", "birthDate", "companyName", "fbUrl", "bizReg", "experienceYears", "availability", "skills", "workHistory", "resumeUrl"]
       .forEach((k) => { if (f[k]) p[k] = f[k].value; });
+    if (f.firstName) p.fullName = joinName(p.firstName, p.middleName, p.lastName);
     if (f.eduLevel) p.education = [f.eduLevel.value, f.eduSchool.value.trim()].filter(Boolean).join(" · ");
     const g = f.querySelector("[name=gender]:checked"); if (f.querySelector("[name=gender]")) p.gender = g ? g.value : "";
     ["jobCategories", "jobTypes"].forEach((k) => { if (f.querySelector(`[name=${k}]`)) p[k] = [...f.querySelectorAll(`[name=${k}]:checked`)].map((i) => i.value); });
@@ -1279,10 +1437,12 @@ function viewProfile(focus) {
       const jo = $("#jc-other"); if (jo) { jo.hidden = !f.querySelector('[name=jobCategories][value="Other"]:checked'); if (!jo.hidden && cb.value === "Other" && cb.checked) f.jobCategoryOther.focus(); }
     }));
     f.alerts?.addEventListener("change", () => { $("#alerts-scope").hidden = !f.alerts.checked; });
+    bindOptionalPills(f); bindPickers(f);
     f.addEventListener("input", (e) => e.target.classList?.remove("invalid"));
     const pd = loadDraft(`profile:${role}`);
     if (pd) {
       applyDraft(f, pd); f.insertAdjacentHTML("afterbegin", draftNote());
+      f.querySelectorAll("[data-picker]").forEach((pk) => pk.sync?.());
       f.querySelector("[data-draft-clear]").addEventListener("click", () => { clearDraft(`profile:${role}`); location.reload(); });
       const a = ageFrom(f.birthDate?.value); if (f.birthDate && a != null) $("#age-out").textContent = `${a} years old`;
     }
@@ -1296,7 +1456,7 @@ function viewProfile(focus) {
       const k = b.dataset.goto;
       if (k === "photo") { $(".photo-pick").scrollIntoView({ behavior: "smooth", block: "center" }); return $("#photo-in").click(); }
       const el = f.querySelector(`[name=${k === "education" ? "eduLevel" : k}]`); if (!el) return;
-      const box = el.closest("label, div") || el;
+      const box = (el.type === "radio" ? el.closest(".pills")?.parentElement : el.closest("label, div")) || el;
       box.scrollIntoView({ behavior: "smooth", block: "center" }); box.classList.add("flash"); setTimeout(() => box.classList.remove("flash"), 1600);
       setTimeout(() => el.focus({ preventScroll: true }), 350);
     });
@@ -1314,24 +1474,29 @@ function viewProfile(focus) {
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const errEl = $("#form-error");
-      const fail = (m, el) => { errEl.textContent = m; errEl.hidden = false; if (el) { el.classList.add("invalid"); el.focus({ preventScroll: true }); } errEl.scrollIntoView({ block: "center", behavior: "smooth" }); };
+      const fail = (m, el) => { if (el?.closest("[hidden]")) $("#known-edit")?.click(); errEl.textContent = m; errEl.hidden = false; if (el) { el.classList.add("invalid"); el.focus({ preventScroll: true }); } errEl.scrollIntoView({ block: "center", behavior: "smooth" }); };
       errEl.hidden = true;
       collect();
-      const fullName = (p.fullName || "").trim(), phone = (p.phone || "").trim();
-      if (!isFullName(fullName)) return fail("Enter your first and last name, e.g. Maria Santos.", f.fullName);
+      const phone = (p.phone || "").trim();
+      const ne = nameError(p.firstName, p.middleName, p.lastName);
+      if (ne) return fail(ne, hasName(p.firstName) ? f.lastName : f.firstName);
+      const names = { firstName: tidyName(p.firstName), middleName: tidyName(p.middleName), lastName: tidyName(p.lastName) };
+      const fullName = joinName(names.firstName, names.middleName, names.lastName);
       const ph = digits(phone).replace(/^\+/, "");
       if (ph.length < 10 || ph.length > 13) return fail("Enter a complete mobile number, e.g. 0917 123 4567.", f.phone);
-      if (!p.city) return fail("Choose your city or municipality.", f.city);
+      if (!p.city) return fail("Choose your city or municipality.", f.querySelector(".picker-btn"));
       if (p.messenger && !/^https?:\/\//i.test(p.messenger) && /facebook\.com|fb\.com|m\.me/i.test(p.messenger)) p.messenger = `https://${p.messenger.trim()}`;
       if (p.messenger && !messengerUrl(p.messenger)) return fail("That Facebook link doesn't look right. It should look like https://facebook.com/yourname", f.messenger);
-      const data = { role, fullName, phone, city: p.city, messenger: (p.messenger || "").trim(), photo: p.photo || "" };
+      const data = { role, fullName, ...names, phone, city: p.city, messenger: (p.messenger || "").trim(), photo: p.photo || "" };
       if (role === "jobseeker") {
         const age = ageFrom(p.birthDate);
         if (!p.birthDate || age === null) return fail("Enter your birthdate.", f.birthDate);
         if (age < 18) return fail("You must be at least 18 years old to apply for jobs here.", f.birthDate);
         if (age > 90) return fail("Check your birthdate.", f.birthDate);
         if (p.resumeUrl && !safeUrl(p.resumeUrl.trim())) return fail("The resume link should start with https://", f.resumeUrl);
-        const exp = p.experienceYears === "" || p.experienceYears == null ? null : Number(p.experienceYears);
+        let exp = p.experienceYears === "" || p.experienceYears == null ? null : Number(p.experienceYears);
+        // An older exact number (e.g. 3 years) is kept unless they picked a different range.
+        if (exp != null && profile?.experienceYears != null && expBucket(profile.experienceYears) === String(exp)) exp = Number(profile.experienceYears);
         Object.assign(data, {
           birthDate: p.birthDate, gender: p.gender || "", jobCategories: p.jobCategories || [], jobTypes: p.jobTypes || [],
           ...(p.jobCategoryOther ? { jobCategoryOther: p.jobCategoryOther } : {}),
@@ -1371,7 +1536,7 @@ function viewProfile(focus) {
             await showDialog({ title: `You're a founding ${role === "employer" ? "employer" : "jobseeker"}!`, body: `${STAR.replace("<svg", '<svg class="dlg-star"')}You're one of the first 100 people on Job Search PH. Your Founding ${role === "employer" ? "employer" : "jobseeker"} badge shows on your profile${role === "employer" ? " and on your job posts" : " and to employers when you apply"}. Thank you for being here early.`, actions: [{ label: "Let's go", value: true, primary: true }] });
           }
         }
-        myAppsCache = null; pendingName = ""; signupIntent = "";
+        myAppsCache = null; pendingName = ""; signupIntent = ""; clearSignupInfo();
         toast("Profile saved");
         if (isNew || returnTo) finishAuthFlow(); else viewProfile();
       } catch (ex) {
@@ -1381,10 +1546,7 @@ function viewProfile(focus) {
     });
   };
 
-  const ICONS = {
-    jobseeker: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 7V5.8A1.8 1.8 0 0 1 10.3 4h3.4a1.8 1.8 0 0 1 1.8 1.8V7" stroke="currentColor" stroke-width="1.7"/><path d="M3 12.5h18" stroke="currentColor" stroke-width="1.7"/><path d="M11 12.5v1.6h2v-1.6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>`,
-    employer: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19v-8.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12.2" r="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M8.3 18.2a3.9 3.9 0 0 1 7.4 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
-  };
+  const ICONS = ROLE_ICONS;
   const ROLES = {
     jobseeker: { title: "I'm looking for work", sub: "For kasambahay, yaya, drivers, cooks and other workers", points: ["Apply to any job in one tap", "Message employers right here", "Track replies in My applications"] },
     employer: { title: "I'm hiring", sub: "For households and local businesses", points: ["Post jobs for free", "Get applicants with their full profile", "Call, text or message them directly"] },
@@ -1443,7 +1605,6 @@ function viewProfile(focus) {
             <button type="button" class="linkbtn" data-role="${role === "employer" ? "jobseeker" : "employer"}">${role === "employer" ? "Looking for work instead?" : "Hiring instead?"}</button></div>`
           : `${!isNew ? `<p class="label">Profile type</p>` : ""}
         <div class="role-pick ${isNew ? "" : "compact"}" role="radiogroup" aria-label="Profile type">${roleCard("jobseeker")}${roleCard("employer")}</div>`}
-        ${role === "jobseeker" ? strengthCard(p) : ""}
         ${role ? formHtml() : `<div class="trust"><span>Free to use</span><span>No fees for jobseekers, ever</span><span>Your details are shared only when you apply</span></div>`}
       </div>`;
     app.querySelectorAll("[data-role]").forEach((b) => b.addEventListener("click", async () => {
@@ -1472,7 +1633,7 @@ function viewProfile(focus) {
     if (role && !isNew) paintVerify();
     if (role && !isNew && smsEnabled) paintPhone();
     if (!isNew && !isFullName(p.fullName) && !profileFocus) {
-      setTimeout(() => { const i = $("[name=fullName]"); if (!i) return; i.scrollIntoView({ behavior: "smooth", block: "center" }); i.focus({ preventScroll: true }); i.closest("label")?.classList.add("flash"); }, 200);
+      setTimeout(() => { const i = $(hasName(p.firstName) ? "[name=lastName]" : "[name=firstName]"); if (!i) return; i.scrollIntoView({ behavior: "smooth", block: "center" }); i.focus({ preventScroll: true }); i.closest("label")?.classList.add("flash"); }, 200);
     }
     if (profileFocus === "emails" && $("#pf-emails")) {
       profileFocus = "";
@@ -1480,6 +1641,10 @@ function viewProfile(focus) {
       const fs = $("#pf-emails");
       setTimeout(() => { fs.scrollIntoView({ behavior: "smooth", block: "center" }); fs.classList.add("flash"); setTimeout(() => fs.classList.remove("flash"), 1700); }, 150);
     }
+    $("#known-edit")?.addEventListener("click", () => {
+      app.querySelectorAll("[data-known]").forEach((el) => { el.hidden = false; });
+      $("#known-row")?.remove(); $("[name=firstName]")?.focus();
+    });
     $("#photo-in")?.addEventListener("change", async (e) => {
       const file = e.target.files?.[0]; if (!file) return;
       e.target.value = "";
@@ -2122,7 +2287,7 @@ function applicantCard(a, { top = false, readOnly = false } = {}) {
   const st = chatState(a);
   const resume = [safeUrl(x.resumeUrl) && `<a href="${esc(safeUrl(x.resumeUrl))}" target="_blank" rel="noopener nofollow">Open resume link</a>`,
     safeUrl(x.resumeFileUrl) && `<a href="${esc(safeUrl(x.resumeFileUrl))}" target="_blank" rel="noopener">${esc(x.resumeFileName || "Resume file")}</a>`].filter(Boolean).join(" · ");
-  const exp = x.experienceYears != null && x.experienceYears !== "" ? `${esc(x.experienceYears)} year${Number(x.experienceYears) === 1 ? "" : "s"}` : "";
+  const exp = esc(expLabel(x.experienceYears));
   const facts = [
     ["Phone", x.phone ? `<span class="copyable">${esc(x.phone)}</span>` : ""],
     ["Email", x.email ? `<a href="mailto:${esc(x.email)}">${esc(x.email)}</a>` : ""],
@@ -2445,7 +2610,7 @@ async function viewChat(appId) {
       <header class="chat-head">
         <a href="#/messages" class="back" aria-label="Back to messages">←</a>
         ${avatar(name, iAmEmployer ? x.photo : "")}
-        <div class="chat-who"><strong>${esc(name)}</strong> ${(iAmEmployer ? verifiedBadge(a.applicantUid, { short: true }) + founderBadge(a.applicantUid, "jobseeker", { short: true }) : verifiedBadge(a.employerUid, { short: true }) + founderBadge(a.employerUid, "employer", { short: true }))}
+        <div class="chat-who"><span class="chat-name"><strong>${esc(name)}</strong>${(iAmEmployer ? verifiedBadge(a.applicantUid, { short: true }) + founderBadge(a.applicantUid, "jobseeker", { short: true }) : verifiedBadge(a.employerUid, { short: true }) + founderBadge(a.employerUid, "employer", { short: true }))}</span>
           <span class="muted small">${iAmEmployer ? `${x.age ? `${esc(x.age)} · ` : ""}${esc(x.city || "")} · ` : ""}<a href="#/job/${encodeURIComponent(a.jobId)}">${esc(a.jobTitle)}</a></span></div>
         <span id="chat-badge"></span>
       </header>
@@ -2795,7 +2960,7 @@ async function viewAdminUser(id) {
     fact("Joined", u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : ""),
     fact("Last updated", u.updatedAt ? ago(u.updatedAt) : ""),
     ...(isSeeker ? [fact("Age", ageFrom(u.birthDate) != null ? `${ageFrom(u.birthDate)} (born ${esc(u.birthDate)})` : ""), fact("Gender", esc(u.gender || "")),
-      fact("Experience", u.experienceYears != null && u.experienceYears !== "" ? `${esc(u.experienceYears)} years` : ""), fact("Can start", esc(u.availability || "")),
+      fact("Experience", esc(expLabel(u.experienceYears))), fact("Can start", esc(u.availability || "")),
       fact("Education", esc(u.education || "")), fact("Resume", safeUrl(u.resumeUrl) ? `<a href="${esc(safeUrl(u.resumeUrl))}" target="_blank" rel="noopener nofollow">Open link</a>` : "")]
       : [fact("Household / business", esc(u.companyName || "")), fact("Job posts", `${d.posts.length} total · ${live.length} live`),
         fact("Facebook", fbHref(u.fbUrl) ? `<a href="${esc(fbHref(u.fbUrl))}" target="_blank" rel="noopener nofollow">${esc(fbHref(u.fbUrl).replace(/^https?:\/\/(www\.)?/, ""))}</a>` : ""),

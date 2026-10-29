@@ -56,12 +56,16 @@ async function deliver(key, to, { subject, html, text }) {
 let VERIFIED_IDS = null;
 const verifiedIds = async () => (VERIFIED_IDS ||= new Set((await query("verified").catch(() => [])).map((v) => v.id)));
 
+// Experience is stored in years: 0.5 means "6–12 months" (same ranges as the profile form).
+const EXP = { 0: "No", 0.1: "Under 3 months", 0.25: "3–6 months", 0.5: "6–12 months", 1: "1–2 years", 2: "2–5 years", 5: "5+ years", 10: "10+ years" };
+const expText = (n) => (n === "" || n == null || !Number.isFinite(Number(n)) ? "" : EXP[Number(n)] || `${Number(n)} year${Number(n) === 1 ? "" : "s"}`);
+
 function applicantBlock(a, { highlight = false } = {}) {
   const x = a.applicant || {}, f = a.fit;
   const reasons = [...f.good.slice(0, 3).map((g) => `✓ ${esc(g)}`), ...f.gaps.slice(0, 2).map((g) => `– ${esc(g)}`)].join("<br>");
   return card(`
     <div style="font-size:16px;font-weight:bold;color:#111111;">${esc(x.fullName || "Applicant")}${x.age ? `, ${esc(x.age)}` : ""}${VERIFIED_IDS?.has(a.applicantUid) ? ` <span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#15803d;font-size:12px;font-weight:bold;vertical-align:middle;">✓ Verified</span>` : ""}</div>
-    <div style="font-size:13px;color:#666666;margin-bottom:6px;">${esc(x.city || "")}${x.experienceYears != null && x.experienceYears !== "" ? ` · ${esc(x.experienceYears)} yrs experience` : ""}${x.availability ? ` · ${esc(x.availability)}` : ""}</div>
+    <div style="font-size:13px;color:#666666;margin-bottom:6px;">${esc(x.city || "")}${expText(x.experienceYears) ? ` · ${esc(expText(x.experienceYears))} experience` : ""}${x.availability ? ` · ${esc(x.availability)}` : ""}</div>
     <div style="font-size:14px;margin-bottom:6px;"><strong style="color:${fitColor(f.score)};font-size:18px;">${f.score}/100</strong> <span style="color:#333;">${esc(f.label)}</span></div>
     <div style="font-size:13px;line-height:20px;color:#555555;">${reasons}</div>`,
     highlight ? "#15803d" : "#3d4fd6", highlight ? "#f0fdf4" : "#f6f7fe");
