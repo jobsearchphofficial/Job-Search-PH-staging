@@ -49,7 +49,8 @@ export default {
       // Which step failed (no secret values): "secret", "google", "firestore", "auth" or "mail".
       const m = String(e.message || "");
       const step = /secret/i.test(m) || e instanceof SyntaxError ? "secret" : /^Google/.test(m) ? "google" : /^Firestore/.test(m) ? "firestore" : /sendOobCode/.test(m) ? "auth" : "other";
-      return reply(500, { error: "server", step, status: (m.match(/\b(\d{3})\b/) || [])[1] || null });
+      const detail = `${e.name || "Error"}: ${m.replace(/[A-Za-z0-9+/_=-]{24,}/g, "…").slice(0, 120)}`; // long tokens blanked out
+      return reply(500, { error: "server", step, status: (m.match(/\b(\d{3})\b/) || [])[1] || null, detail });
     }
   },
 };
