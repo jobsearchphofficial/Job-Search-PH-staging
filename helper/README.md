@@ -10,7 +10,7 @@ One helper serves both sites; the Firebase project in the request picks the data
 
 - Code: `worker.js` (single file — paste it into the Cloudflare editor).
 - Settings (Workers → jsph-helper → Settings → Variables and secrets):
-  - `UNISMS_KEY` (secret) — UniSMS → API keys
+  - `UNISMS_KEY` (secret, only for text codes) — UniSMS → API keys. Also set `SMS_ON = true` in firebase-config.js
   - `RESEND_KEY` (secret) — Resend API key
   - `SA_LIVE` (secret) — service-account JSON of `job-search-ph-website`
   - `SA_STAGING` (secret) — service-account JSON of `job-search-ph-staging`

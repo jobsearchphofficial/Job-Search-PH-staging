@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL } from "./firebase-config.js?v=1793208647";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793253601";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -16,7 +16,7 @@ export const onAuth = (cb) => { listeners.add(cb); if (state.ready) cb({ ...stat
 export const getAuthState = () => ({ ...state });
 export const uploadsEnabled = RESUME_UPLOADS;
 const HELPER = USE_EMULATORS ? "http://127.0.0.1:8787" : HELPER_URL;
-export const smsEnabled = !!HELPER;
+export const smsEnabled = !!HELPER && (SMS_ON || USE_EMULATORS);
 // A real name: at least two words with letters (first and last name).
 export const isFullName = (n) => String(n || "").trim().split(/\s+/).filter((w) => /\p{L}{2,}/u.test(w)).length >= 2;
 async function callHelper(path, body = {}, signedIn = true) {

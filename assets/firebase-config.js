@@ -27,6 +27,8 @@ export const firebaseConfig = IS_STAGING ? STAGING_CONFIG : LIVE_CONFIG;
 // Helper (Cloudflare Worker in helper/): texts phone codes and sends the branded account emails.
 // Empty = phone confirmation is hidden, and account emails fall back to Firebase's own plain emails.
 export const HELPER_URL = "";
+// Text-message (SMS) codes through the helper. Off until UniSMS is set up (the emails work without it).
+export const SMS_ON = false;
 
 // How long an approved post stays live.
 export const LISTING_DAYS = 30;
