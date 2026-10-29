@@ -126,6 +126,7 @@ async function oobCode(project, env, requestType, email) {
   });
   const out = await r.json().catch(() => ({}));
   if (!r.ok) { if (/EMAIL_NOT_FOUND|USER_NOT_FOUND/.test(out.error?.message || "")) return null; throw new Error(`sendOobCode ${r.status} ${JSON.stringify(out).slice(0, 200)}`); }
+  if (!out.oobLink) return null; // no such account (Google answers "ok" without a link)
   return new URL(out.oobLink).searchParams.get("oobCode");
 }
 
