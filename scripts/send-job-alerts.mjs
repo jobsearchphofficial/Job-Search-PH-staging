@@ -69,14 +69,14 @@ export function buildEmail(user, matches) {
   const rows = shown.map((j) => `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-bottom:1px solid #e6e8f2;"><tr><td style="padding:14px 0;">
       <a href="${esc(jobUrl(j))}" style="font-size:16px;font-weight:bold;color:#3d4fd6;text-decoration:none;">${esc(j.title)}</a>
-      <div style="font-size:14px;color:#444444;margin-top:4px;">${esc(employer(j))} · ${esc(place(j))}</div>
-      <div style="font-size:14px;color:#444444;margin-top:2px;"><strong style="color:#15803d;">${esc(salaryText(j))}</strong>${j.schedule || j.employmentType ? ` · ${esc(j.schedule || j.employmentType)}` : ""}${j.arrangement ? ` · ${esc(j.arrangement)}` : ""}</div>
+      <div style="font-size:14px;line-height:22px;color:#2b2f3a;margin-top:4px;">${esc(employer(j))} · ${esc(place(j))}</div>
+      <div style="font-size:14px;line-height:22px;color:#2b2f3a;margin-top:2px;"><strong style="color:#15803d;">${esc(salaryText(j))}</strong>${j.schedule || j.employmentType ? ` · ${esc(j.schedule || j.employmentType)}` : ""}${j.arrangement ? ` · ${esc(j.arrangement)}` : ""}</div>
       <div style="font-size:12px;color:#777777;margin-top:2px;">${esc(kind(j))}</div>
       <a href="${esc(jobUrl(j))}" style="display:inline-block;margin-top:8px;padding:8px 14px;background:#3d4fd6;color:#ffffff;border-radius:6px;font-size:13px;font-weight:bold;text-decoration:none;">View and apply</a>
     </td></tr></table>`).join("");
 
   const body = `
-    <p style="margin:0 0 6px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first)}, ${matches.length === 1 ? "a new job matches" : `${matches.length} new jobs match`} what you're looking for:</p>
+    <p style="margin:0 0 6px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first)}, ${matches.length === 1 ? "a new job matches" : `${matches.length} new jobs match`} what you're looking for:</p>
     ${rows}
     ${more > 0 ? button(browse, `See ${more} more jobs`) : ""}`;
   const footerNote = `You're getting this because you turned on job alerts on your Job Search PH profile.<br>

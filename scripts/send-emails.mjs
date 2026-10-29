@@ -65,7 +65,7 @@ function applicantBlock(a, { highlight = false } = {}) {
   const reasons = [...f.good.slice(0, 3).map((g) => `✓ ${esc(g)}`), ...f.gaps.slice(0, 2).map((g) => `– ${esc(g)}`)].join("<br>");
   return card(`
     <div style="font-size:16px;font-weight:bold;color:#111111;">${esc(x.fullName || "Applicant")}${x.age ? `, ${esc(x.age)}` : ""}${VERIFIED_IDS?.has(a.applicantUid) ? ` <span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#15803d;font-size:12px;font-weight:bold;vertical-align:middle;">✓ Verified</span>` : ""}</div>
-    <div style="font-size:13px;color:#666666;margin-bottom:6px;">${esc(x.city || "")}${expText(x.experienceYears) ? ` · ${esc(expText(x.experienceYears))} experience` : ""}${x.availability ? ` · ${esc(x.availability)}` : ""}</div>
+    <div style="font-size:13px;line-height:20px;color:#6b7186;margin-bottom:6px;">${esc(x.city || "")}${expText(x.experienceYears) ? ` · ${esc(expText(x.experienceYears))} experience` : ""}${x.availability ? ` · ${esc(x.availability)}` : ""}</div>
     <div style="font-size:14px;margin-bottom:6px;"><strong style="color:${fitColor(f.score)};font-size:18px;">${f.score}/100</strong> <span style="color:#333;">${esc(f.label)}</span></div>
     <div style="font-size:13px;line-height:20px;color:#555555;">${reasons}</div>`,
     highlight ? "#15803d" : "#3d4fd6", highlight ? "#f0fdf4" : "#f6f7fe");
@@ -87,13 +87,13 @@ async function newApplicants(since) {
     const name = first(app.applicant?.fullName);
     const others = total - 1;
     const body = `
-      <p style="margin:0 0 14px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, <strong>${esc(app.applicant?.fullName || "someone")}</strong> applied to your post <strong>${esc(job.title)}</strong>.</p>
+      <p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, <strong>${esc(app.applicant?.fullName || "someone")}</strong> applied to your post <strong>${esc(job.title)}</strong>.</p>
       ${applicantBlock(me, { highlight: best && best.id === me.id && total > 1 })}
       ${total > 1 ? (best && best.id !== me.id
-        ? `<p style="margin:14px 0 8px 0;font-size:14px;color:#444444;">You now have <strong>${total} applicants</strong>. Your best fit so far:</p>${applicantBlock(best, { highlight: true })}`
-        : `<p style="margin:14px 0 8px 0;font-size:14px;color:#444444;">You now have <strong>${total} applicants</strong>, and ${esc(name)} is your best fit so far.</p>`) : ""}
+        ? `<p style="margin:14px 0 8px 0;font-size:14px;line-height:22px;color:#2b2f3a;">You now have <strong>${total} applicants</strong>. Your best fit so far:</p>${applicantBlock(best, { highlight: true })}`
+        : `<p style="margin:14px 0 8px 0;font-size:14px;line-height:22px;color:#2b2f3a;">You now have <strong>${total} applicants</strong>, and ${esc(name)} is your best fit so far.</p>`) : ""}
       ${button(link(`#/applicants/${app.jobId}`, "email-applicant"), total > 1 ? `See all ${total} applicants` : `See ${name}'s profile`)}
-      <p style="margin:6px 0 0 0;font-size:12px;color:#888888;">The fit score compares their profile with your post. It's a guide; you decide. Reply to applicants in Messages on Job Search PH.</p>`;
+      <p style="margin:6px 0 0 0;font-size:12px;line-height:18px;color:#8a8fa3;">The fit score compares their profile with your post. It's a guide; you decide. Reply to applicants in Messages on Job Search PH.</p>`;
     await deliver(key, emp.email, {
       subject: `New applicant for ${job.title}: ${name} (${me.fit.score}/100 fit)`,
       html: layout({ title: `New applicant: ${app.applicant?.fullName || name}`, preheader: `${me.fit.label} · ${total} applicant${total === 1 ? "" : "s"} so far`, body, footerNote: settingsNote, safety: false }),
@@ -118,19 +118,19 @@ async function postUpdates(since) {
     let key = null, subject = "", title = "", body = "";
     if (j.status === "pending" && !j.editedAt && j.createdAt > since) {
       key = `job_${j.id}_received`; subject = `We got your job post: ${j.title}`; title = "We got your job post";
-      body = `<p style="margin:0 0 14px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp?.fullName))}, thanks for posting on Job Search PH. We check every post before it goes live, usually within a day. We'll email you when it's approved.</p>${postCard}
-        <p style="margin:12px 0 0 0;font-size:13px;color:#666666;">Want a <strong>Verified</strong> badge? Add your Facebook link or business permit on your profile, so we can confirm you're a real employer.</p>${button(link("#/profile", "email-post"), "Update my profile")}`;
+      body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp?.fullName))}, thanks for posting on Job Search PH. We check every post before it goes live, usually within a day. We'll email you when it's approved.</p>${postCard}
+        <p style="margin:12px 0 0 0;font-size:13px;line-height:20px;color:#6b7186;">Want a <strong>Verified</strong> badge? Add your Facebook link or business permit on your profile, so we can confirm you're a real employer.</p>${button(link("#/profile", "email-post"), "Update my profile")}`;
     } else if (j.status === "approved" && j.approvedAt && j.approvedAt > since && !(j.editedAt && j.editedAt > j.approvedAt)) {
       key = `job_${j.id}_live_${j.approvedAt}`; subject = `Your job post is live: ${j.title}`; title = "Your job post is live";
-      body = `<p style="margin:0 0 14px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp?.fullName))}, your post is approved and jobseekers can see it now${j.expiresAt ? ` until ${new Date(j.expiresAt).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}` : ""}. We'll email you when someone applies.</p>${postCard}
-        <p style="margin:12px 0 0 0;font-size:13px;color:#666666;">Tip: share it in your Facebook groups to get more applicants.</p>${button(link(`#/job/${j.id}`, "email-post"), "View my post")}`;
+      body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp?.fullName))}, your post is approved and jobseekers can see it now${j.expiresAt ? ` until ${new Date(j.expiresAt).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}` : ""}. We'll email you when someone applies.</p>${postCard}
+        <p style="margin:12px 0 0 0;font-size:13px;line-height:20px;color:#6b7186;">Tip: share it in your Facebook groups to get more applicants.</p>${button(link(`#/job/${j.id}`, "email-post"), "View my post")}`;
     } else if (j.status === "approved" && j.editedAt && (!j.approvedAt || j.editedAt > j.approvedAt) && j.editedAt > now - 30 * 86400000) {
       key = `job_${j.id}_relive_${j.editedAt}`; subject = `Your changes are live: ${j.title}`; title = "Your changes are live";
-      body = `<p style="margin:0 0 14px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp?.fullName))}, we approved the changes to your post and it's visible to jobseekers again.</p>${postCard}${button(link(`#/job/${j.id}`, "email-post"), "View my post")}`;
+      body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp?.fullName))}, we approved the changes to your post and it's visible to jobseekers again.</p>${postCard}${button(link(`#/job/${j.id}`, "email-post"), "View my post")}`;
     } else if (j.status === "rejected") {
       key = `job_${j.id}_rejected_${j.editedAt || j.createdAt}`; subject = `Your job post wasn't approved: ${j.title}`; title = "Your job post wasn't approved";
-      body = `<p style="margin:0 0 14px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp?.fullName))}, we couldn't approve this post yet. Usually it's one of these: pay below the legal minimum, missing details about the work, or a contact that doesn't work.</p>${postCard}
-        <p style="margin:12px 0 0 0;font-size:13px;color:#666666;">Fix it and we'll check it again. Questions? Just reply to this email.</p>${button(link(`#/post/edit/${j.id}`, "email-post"), "Edit my post")}`;
+      body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp?.fullName))}, we couldn't approve this post yet. Usually it's one of these: pay below the legal minimum, missing details about the work, or a contact that doesn't work.</p>${postCard}
+        <p style="margin:12px 0 0 0;font-size:13px;line-height:20px;color:#6b7186;">Fix it and we'll check it again. Questions? Just reply to this email.</p>${button(link(`#/post/edit/${j.id}`, "email-post"), "Edit my post")}`;
     }
     if (!key || await seen(key)) continue;
     if (!ok) { await mark(key, "skipped"); continue; }
@@ -180,10 +180,10 @@ async function verifyUpdates(since) {
     const seeker = emp.role === "jobseeker";
     if (r.status === "expired") r.reason = "we didn't get to it within 14 days, so we deleted your photos to keep them safe";
     const body = ok
-      ? `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, we checked your ID and you're now a <strong>Verified ${seeker ? "jobseeker" : "employer"}</strong>. ${seeker ? "Employers see the green Verified badge when you apply, so they know you're real." : "The green Verified badge shows on all your job posts, so jobseekers know you're real."}</p>
-         <p style="margin:0;font-size:13px;color:#666666;">As promised, we deleted your ID photo and selfie. We only keep that you were verified and the type of ID.</p>${seeker ? button(link("#/", "email-verify"), "Find jobs") : button(link("#/my", "email-verify"), "See my posts")}`
-      : `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, we couldn't verify your ID this time${r.reason ? `: <strong>${esc(r.reason)}</strong>` : "."}</p>
-         <p style="margin:0;font-size:13px;color:#666666;">We deleted the photos you sent. You can send new ones from your profile${seeker ? ", and you can still apply to jobs in the meantime" : ", and your posts can still go live after our usual review"}.</p>${button(link("#/verify", "email-verify"), "Try again")}`;
+      ? `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, we checked your ID and you're now a <strong>Verified ${seeker ? "jobseeker" : "employer"}</strong>. ${seeker ? "Employers see the green Verified badge when you apply, so they know you're real." : "The green Verified badge shows on all your job posts, so jobseekers know you're real."}</p>
+         <p style="margin:0;font-size:13px;line-height:20px;color:#6b7186;">As promised, we deleted your ID photo and selfie. We only keep that you were verified and the type of ID.</p>${seeker ? button(link("#/", "email-verify"), "Find jobs") : button(link("#/my", "email-verify"), "See my posts")}`
+      : `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, we couldn't verify your ID this time${r.reason ? `: <strong>${esc(r.reason)}</strong>` : "."}</p>
+         <p style="margin:0;font-size:13px;line-height:20px;color:#6b7186;">We deleted the photos you sent. You can send new ones from your profile${seeker ? ", and you can still apply to jobs in the meantime" : ", and your posts can still go live after our usual review"}.</p>${button(link("#/verify", "email-verify"), "Try again")}`;
     await deliver(key, emp.email, { subject: ok ? `You're a Verified ${seeker ? "jobseeker" : "employer"} on Job Search PH` : "We couldn't verify your ID yet", html: layout({ title: ok ? "You're verified" : "We couldn't verify your ID yet", preheader: ok ? (seeker ? "Employers will see the Verified badge when you apply." : "The Verified badge is on your posts now.") : "You can send new photos.", body, safety: false }), text: `${ok ? "You're verified." : "We couldn't verify your ID yet."} ${link(ok ? (seeker ? "#/" : "#/my") : "#/verify", "email-verify")}` });
     if (capped) break;
   }
@@ -234,9 +234,9 @@ async function adminSummary(since, pendingJobs, flagged = [], verifyReqs = []) {
   const counts = {};
   todo.forEach((t) => { const k = t.kind.split(":")[0]; counts[k] = (counts[k] || 0) + 1; });
   const summary = Object.entries(counts).map(([k, n]) => `${n} ${(NOUN[k] || [k.toLowerCase(), `${k.toLowerCase()}s`])[n === 1 ? 0 : 1]}`).join(", ");
-  const body = `<p style="margin:0 0 14px 0;font-size:15px;line-height:22px;color:#444444;">${esc(summary)}.</p>
+  const body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">${esc(summary)}.</p>
     ${todo.slice(0, 20).map((t) => card(`<div style="font-size:12px;color:#777777;text-transform:uppercase;letter-spacing:.5px;">${esc(t.kind)}</div><div style="margin-top:2px;">${esc(t.text)}</div><div style="margin-top:6px;"><a href="${esc(t.href)}" style="color:#3d4fd6;font-weight:bold;">Open</a></div>`)).join("")}
-    ${todo.length > 20 ? `<p style="font-size:13px;color:#666666;">…and ${todo.length - 20} more.</p>` : ""}
+    ${todo.length > 20 ? `<p style="font-size:13px;line-height:20px;color:#6b7186;">…and ${todo.length - 20} more.</p>` : ""}
     ${button(link("#/admin/pending", "email-admin"), "Open Admin")}`;
   const key = `admin_${now}`;
   if (await deliver(key, ADMIN_EMAIL, { subject: `Job Search PH: ${summary}`, html: layout({ title: "Something needs your attention", preheader: summary, body, safety: false }), text: `${summary}\n${link("#/admin/pending", "email-admin")}` })) {
@@ -262,12 +262,12 @@ async function employerReminders() {
     if (!posts.length) {
       if (!emp.createdAt || now - emp.createdAt < 7 * 86400000) continue;
       key = `remind_${emp.id}_first`; subject = "Ready to post your first job?"; title = "Ready to post your first job?";
-      body = `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, you made an employer account on Job Search PH but haven't posted a job yet. It's free and takes about 2 minutes. Jobseekers in Negros Occidental can apply and message you right on the site.</p>${button(link("#/post", "email-remind"), "Post a job for free")}`;
+      body = `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, you made an employer account on Job Search PH but haven't posted a job yet. It's free and takes about 2 minutes. Jobseekers in Negros Occidental can apply and message you right on the site.</p>${button(link("#/post", "email-remind"), "Post a job for free")}`;
     } else {
       const last = posts.reduce((a, b) => ((b.createdAt || 0) > (a.createdAt || 0) ? b : a));
       if (now - (last.createdAt || 0) < 30 * 86400000) continue;
       key = `remind_${emp.id}_${month}`; subject = "Still hiring? Post a job in 2 minutes"; title = "Still hiring?";
-      body = `<p style="margin:0 0 12px 0;font-size:15px;line-height:22px;color:#444444;">Hi ${esc(first(emp.fullName))}, you don't have any live job posts on Job Search PH right now. If you need help again, posting is free and jobseekers can apply the same day.</p>
+      body = `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, you don't have any live job posts on Job Search PH right now. If you need help again, posting is free and jobseekers can apply the same day.</p>
         ${card(`<div style="font-size:12px;color:#777777;text-transform:uppercase;letter-spacing:.5px;">Your last post</div><div style="font-size:15px;font-weight:bold;color:#111111;margin-top:2px;">${esc(last.title)}</div><div>${esc(last.city || "")} · ${new Date(last.createdAt).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}</div>`)}
         ${button(link("#/post", "email-remind"), "Post a job")}`;
     }
