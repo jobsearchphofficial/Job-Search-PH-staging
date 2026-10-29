@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793269000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793269000";
-import { fitScore, rankApplicants } from "./match.js?v=1793269000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793269000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793270000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793270000";
+import { fitScore, rankApplicants } from "./match.js?v=1793270000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793270000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -52,6 +52,8 @@ const REPORT_REASONS = {
 const STATUS_LABEL = { pending: "Under review", approved: "Live", rejected: "Rejected", closed: "Closed" };
 const APP_STATUS = { new: "Sent", shortlisted: "Shortlisted", offered: "Job offer", not_selected: "Not selected", offer_declined: "Offer declined", hired: "Hired" };
 const DECLINED = ["not_selected", "offer_declined"];
+// Facebook links and permit numbers are typed by the user: anyone could enter someone else's. Not proof until checked.
+const UNCONFIRMED = `<span class="unconf" title="Typed by the user. Anyone could enter someone else's, so don't treat it as proof.">Not confirmed</span>`;
 const LOCK_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
 const CAN_SMS = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const FB_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="#1877F2" d="M24 12a12 12 0 1 0-13.9 11.9v-8.4H7.1V12h3V9.4c0-3 1.8-4.7 4.5-4.7 1.3 0 2.7.2 2.7.2v2.9h-1.5c-1.5 0-2 .9-2 1.9V12h3.4l-.5 3.5h-2.9v8.4A12 12 0 0 0 24 12z"/><path fill="#fff" d="m16.7 15.5.5-3.5h-3.4V9.7c0-1 .5-1.9 2-1.9h1.5V4.9s-1.4-.2-2.7-.2c-2.7 0-4.5 1.6-4.5 4.7V12h-3v3.5h3v8.4a12 12 0 0 0 3.7 0v-8.4h2.9z"/></svg>`;
@@ -1388,7 +1390,7 @@ function viewProfile(focus) {
       ${role === "employer" ? `
       <fieldset>
         <legend>Help us confirm you're real</legend>
-        <p class="hint vf-hint">${SHIELD}<span>Only admins see these. Employers who add them get approved faster and can earn a <strong>Verified</strong> badge, which jobseekers trust more.</span></p>
+        <p class="hint vf-hint">${SHIELD}<span>Only admins see these. They help us check that you're real, and we may ask you to confirm them. The <strong>Verified</strong> badge comes from the ID check.</span></p>
         <label>Facebook profile or page link<input name="fbUrl" type="url" inputmode="url" maxlength="200" placeholder="https://facebook.com/yourname" value="${esc(p.fbUrl || "")}"></label>
         <label>Business permit or DTI number (businesses only, optional)<input name="bizReg" maxlength="60" placeholder="e.g. DTI 1234567" value="${esc(p.bizReg || "")}"></label>
       </fieldset>
@@ -3018,8 +3020,8 @@ async function viewAdminUser(id) {
       fact("Experience", esc(expLabel(u.experienceYears))), fact("Can start", esc(u.availability || "")),
       fact("Education", esc(u.education || "")), fact("Resume", safeUrl(u.resumeUrl) ? `<a href="${esc(safeUrl(u.resumeUrl))}" target="_blank" rel="noopener nofollow">Open link</a>` : "")]
       : [fact("Household / business", esc(u.companyName || "")), fact("Job posts", `${d.posts.length} total · ${live.length} live`),
-        fact("Facebook", fbHref(u.fbUrl) ? `<a href="${esc(fbHref(u.fbUrl))}" target="_blank" rel="noopener nofollow">${esc(fbHref(u.fbUrl).replace(/^https?:\/\/(www\.)?/, ""))}</a>` : ""),
-        fact("Permit / DTI", esc(u.bizReg || ""))]),
+        fact("Facebook", fbHref(u.fbUrl) ? `<a href="${esc(fbHref(u.fbUrl))}" target="_blank" rel="noopener nofollow">${esc(fbHref(u.fbUrl).replace(/^https?:\/\/(www\.)?/, ""))}</a> ${UNCONFIRMED}` : ""),
+        fact("Permit / DTI", u.bizReg ? `${esc(u.bizReg)} ${UNCONFIRMED}` : "")]),
     fact("Signs in with", u.signIn === "google" ? "Google" : u.signIn === "facebook" ? "Facebook" : u.signIn === "password" ? `Email &amp; password${u.emailVerified ? " (confirmed)" : " (not confirmed)"}` : ""),
     fact("User ID", `<span class="copyable small">${esc(u.id)}</span>`),
   ];
@@ -3519,9 +3521,9 @@ async function viewAdmin() {
           ${row("Joined", o.createdAt ? `${new Date(o.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} (${ago(o.createdAt)})` : "")}
           ${row("Phone", o.phone ? `<a href="tel:${esc(digits(o.phone))}">${esc(o.phone)}</a>${smsEnabled ? ` <span data-phonechk="${esc(o.id)}" data-num="${esc(o.phone)}"></span>${(setTimeout(fillPhoneChecks, 0), "")}` : ""}` : "")}
           ${row("Email", o.email ? `<a href="mailto:${esc(o.email)}">${esc(o.email)}</a> <span class="muted small">${o.signIn === "google" ? "· Google account" : o.signIn === "facebook" ? "· Facebook account" : o.signIn === "password" ? (o.emailVerified ? "· confirmed" : "· not confirmed") : ""}</span>` : "")}
-          ${row("Facebook", fb ? `<a href="${esc(fb)}" target="_blank" rel="noopener nofollow">${esc(fb.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : "")}
+          ${row("Facebook", fb ? `<a href="${esc(fb)}" target="_blank" rel="noopener nofollow">${esc(fb.replace(/^https?:\/\/(www\.)?/, ""))}</a> ${UNCONFIRMED}` : "")}
           ${row("Messenger", m ? `<a href="${esc(m)}" target="_blank" rel="noopener nofollow">${esc(o.messenger)}</a>` : "")}
-          ${row("Permit / DTI", esc(o.bizReg || ""))}
+          ${row("Permit / DTI", o.bizReg ? `${esc(o.bizReg)} ${UNCONFIRMED}` : "")}
           ${row("Lives in", esc(o.city || ""))}
           ${row("Posts", `${posts.length} total · ${posts.filter(isLive).length} live · ${posts.filter((x) => x.status === "rejected").length} rejected`)}
           ${adminTab === "pending" ? row("Applicant contact", c ? esc(contactText(c)) : "") + (c?.address ? row("Private address", esc(c.address)) : "") : ""}

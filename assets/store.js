@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793269000";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793270000";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
