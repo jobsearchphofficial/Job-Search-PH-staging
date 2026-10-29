@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793267000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793267000";
-import { fitScore, rankApplicants } from "./match.js?v=1793267000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793267000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793268000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793268000";
+import { fitScore, rankApplicants } from "./match.js?v=1793268000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793268000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -632,6 +632,8 @@ function authError(err) {
     "auth/unauthorized-domain": "This website address isn't allowed for sign-in yet.",
     "auth/network-request-failed": "No internet connection. Check your connection and try again.",
   };
+  // Messages from our helper (emails): it already explains itself, e.g. how long to wait.
+  if (["wait", "limit", "network", "email"].includes(code) && err?.message) return err.message;
   return map[code] || `Something went wrong (${code || err?.message || "unknown"}).`;
 }
 
@@ -1293,8 +1295,15 @@ function viewSignIn() {
     });
     $("#forgot")?.addEventListener("click", async () => {
       const email = $("#s-email").value.trim();
-      if (!email) return err("Type your email above first, then tap Forgot password.");
-      try { await store.resetPassword(email); err(""); toast("If there's an account with that email, we sent a reset link. Check your inbox and Spam."); } catch (e) { err(authError(e)); }
+      if (!email) { err("Type your email above first, then tap Forgot password."); $("#s-email").focus(); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err("That email address doesn't look right."); $("#s-email").focus(); return; }
+      const go = await showDialog({
+        title: "Reset your password?",
+        body: `We'll email a link to <strong>${esc(email)}</strong> so you can choose a new password. If there's no account with this email, nothing is sent.`,
+        actions: [{ label: "Cancel", value: false }, { label: "Send reset link", value: true, primary: true }],
+      });
+      if (!go) return;
+      try { await store.resetPassword(email); err(""); toast("Reset link sent. Check your inbox, and your Spam folder too."); } catch (e) { err(authError(e)); }
     });
     $("#email-form").addEventListener("input", (e) => e.target.classList?.remove("invalid"));
     $("#email-form").addEventListener("submit", async (e) => {
