@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793271000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793271000";
-import { fitScore, rankApplicants } from "./match.js?v=1793271000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793271000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793272000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793272000";
+import { fitScore, rankApplicants } from "./match.js?v=1793272000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793272000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -837,7 +837,16 @@ document.addEventListener("click", async (e) => {
 
 /* ---------------- Search helpers ---------------- */
 const PAY_MIN = 6500, PAY_MAX = 30000;
-const payLabel = (v) => (Number(v) > PAY_MIN ? `₱${Number(v).toLocaleString("en-PH")}+ / month` : "Any (₱6,500+)");
+const payLabel = (v) => (Number(v) > PAY_MIN ? `₱${Number(v).toLocaleString("en-PH")}+ / month` : "Any pay");
+const PAY_STEPS = [["", "Any pay"], ...[8000, 10000, 12000, 15000, 20000].map((n) => [String(n), `₱${n.toLocaleString("en-PH")}+ / month`])];
+// Small pick-list button (filters on the job list), instead of the browser's own dropdown.
+const msel = (name, title, list, value) => {
+  const cur = list.find(([v]) => String(v) === String(value ?? "")) || list[0];
+  return `<div class="msel" data-msel="${name}">
+    <button type="button" class="msel-btn ${cur[0] !== "" && cur[0] !== "new" ? "set" : ""}" aria-haspopup="listbox" aria-expanded="false"><span class="msel-k">${title}</span><span class="msel-v">${esc(cur[1])}</span><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="m5 8 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="msel-list" role="listbox" aria-label="${title}" hidden>${list.map(([v, l]) => `<button type="button" role="option" class="msel-opt" data-v="${esc(String(v))}" aria-selected="${String(v) === String(cur[0])}">${esc(l)}</button>`).join("")}</div>
+  </div>`;
+};
 const clock = (h) => { h = ((h % 24) + 24) % 24; return `${h % 12 || 12}:00 ${h < 12 ? "AM" : "PM"}`; };
 const hl = (text, t) => { const i = text.toLowerCase().indexOf(t); return i < 0 ? esc(text) : `${esc(text.slice(0, i))}<mark>${esc(text.slice(i, i + t.length))}</mark>${esc(text.slice(i + t.length))}`; };
 // Lightweight combobox: shows suggestions as you type; arrows + Enter to pick, Esc to close.
@@ -884,7 +893,7 @@ async function viewList() {
     <section class="hero">
       <span class="eyebrow">Free for jobseekers · No fees, ever</span>
       <h1>Find work near you in <em>Negros Occidental</em></h1>
-      <p>Household, service and local jobs from employers in Bacolod and nearby towns. Every post is checked and must pay at least the legal minimum wage.</p>
+      <p>Household, service and local jobs in Bacolod and nearby towns. Every post is checked by our team and pays at least the legal minimum wage.</p>
       <form class="search2" id="search" role="search">
         <div class="field ac"><span class="ico">${ICON.search}</span><label class="sr" for="q">What</label>
           <input type="search" id="q" name="q" placeholder="Job title or keyword" value="${esc(filters.q)}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="q-list" aria-autocomplete="list">
@@ -896,7 +905,7 @@ async function viewList() {
       </form>
       <div class="hero-row">
         <button class="btn btn-ghost btn-sm near" id="near" type="button">${ICON.locate}<span>${filters.near ? `Near ${esc(filters.nearCity)}` : "Use my location"}</span></button>
-        <div class="hero-stats"><span><strong id="stat-jobs">–</strong> open jobs</span><span><strong id="stat-cities">–</strong> locations</span></div>
+        <div class="hero-stats"><span id="stat-jobs-wrap"><strong id="stat-jobs">–</strong> open jobs</span><span id="stat-cities-wrap"><strong id="stat-cities">–</strong> locations</span></div>
       </div>
       ${user ? "" : `<div class="hero-actions"><a class="btn btn-ghost btn-sm" href="#/signin" data-action="gosignin" data-intent="jobseeker" data-purpose="Create your free profile">Create a free profile</a><a class="btn btn-ghost btn-sm" href="#/signin" data-action="gosignin" data-intent="employer" data-purpose="Sign in to post a job">I'm hiring</a></div>`}
     </section>
@@ -907,14 +916,9 @@ async function viewList() {
     <div class="toolbar">
       <span id="count" class="muted"></span>
       <div class="toolbar-filters">
-        <select id="f-type" name="type" aria-label="Job type"><option value="">Any type</option>${opts(TYPES, filters.type)}</select>
-        <label class="pay-slider"><span class="ps-label">Pay <strong id="pay-out">${payLabel(filters.minPay)}</strong></span>
-          <input type="range" id="f-pay" min="${PAY_MIN}" max="${PAY_MAX}" step="500" value="${filters.minPay || PAY_MIN}" aria-label="Minimum monthly pay"></label>
-        <select id="f-sort" name="sort" aria-label="Sort">
-          <option value="new" ${filters.sort === "new" ? "selected" : ""}>Newest</option>
-          <option value="pay" ${filters.sort === "pay" ? "selected" : ""}>Highest pay</option>
-          <option value="near" ${filters.sort === "near" ? "selected" : ""}>Nearest</option>
-        </select>
+        ${msel("type", "Type", [["", "Any type"], ...TYPES.map((t) => [t, t])], filters.type)}
+        ${msel("minPay", "Pay", PAY_STEPS, filters.minPay)}
+        ${msel("sort", "Sort", [["new", "Newest"], ["pay", "Highest pay"], ["near", "Nearest"]], filters.sort)}
       </div>
     </div>
     <div id="active-filters" class="active-filters"></div>
@@ -966,10 +970,37 @@ async function viewList() {
     $("#empty-clear")?.addEventListener("click", () => { Object.assign(filters, { q: "", where: "", category: "", type: "", minPay: "" }); viewList(); });
   };
   const sync = () => { const f = $("#search"); filters.q = f.q.value; filters.where = f.where.value; draw(); };
-  const payIn = $("#f-pay");
-  const paintPay = () => { const pct = ((payIn.value - PAY_MIN) / (PAY_MAX - PAY_MIN)) * 100; payIn.style.setProperty("--fill", `${pct}%`); $("#pay-out").textContent = payLabel(payIn.value); };
-  payIn.addEventListener("input", () => { filters.minPay = Number(payIn.value) > PAY_MIN ? payIn.value : ""; paintPay(); draw(); });
-  paintPay();
+  // Filter pick-lists (Type, Pay, Sort).
+  const setMsel = (name, v) => {
+    const box = app.querySelector(`[data-msel="${name}"]`); if (!box) return;
+    const opt = box.querySelector(`.msel-opt[data-v="${CSS.escape(String(v))}"]`) || box.querySelector(".msel-opt");
+    box.querySelectorAll(".msel-opt").forEach((o) => o.setAttribute("aria-selected", o === opt));
+    box.querySelector(".msel-v").textContent = opt.textContent;
+    box.querySelector(".msel-btn").classList.toggle("set", opt.dataset.v !== "" && opt.dataset.v !== "new");
+  };
+  const closeMsels = (except) => app.querySelectorAll(".msel").forEach((b) => { if (b === except) return; b.querySelector(".msel-list").hidden = true; b.querySelector(".msel-btn").setAttribute("aria-expanded", "false"); });
+  app.querySelectorAll(".msel").forEach((box) => {
+    const btn = box.querySelector(".msel-btn"), list = box.querySelector(".msel-list");
+    btn.addEventListener("click", () => {
+      const open = list.hidden; closeMsels(box); list.hidden = !open; btn.setAttribute("aria-expanded", open);
+      if (open) (list.querySelector('[aria-selected="true"]') || list.firstElementChild).focus();
+    });
+    list.addEventListener("click", (e) => {
+      const o = e.target.closest(".msel-opt"); if (!o) return;
+      const name = box.dataset.msel; filters[name] = o.dataset.v; setMsel(name, o.dataset.v); closeMsels(); btn.focus();
+      if (name === "sort" && o.dataset.v === "near" && !filters.near) locate(); else draw();
+    });
+    list.addEventListener("keydown", (e) => {
+      const opts = [...list.querySelectorAll(".msel-opt")]; const i = opts.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") { e.preventDefault(); opts[Math.min(i + 1, opts.length - 1)].focus(); }
+      if (e.key === "ArrowUp") { e.preventDefault(); opts[Math.max(i - 1, 0)].focus(); }
+      if (e.key === "Escape") { closeMsels(); btn.focus(); }
+    });
+  });
+  if (!window.__mselOutside) { // one listener for the whole app: tapping elsewhere closes any open pick-list
+    window.__mselOutside = true;
+    document.addEventListener("click", (e) => { if (!e.target.closest(".msel")) document.querySelectorAll(".msel-list").forEach((l) => { l.hidden = true; l.previousElementSibling?.setAttribute("aria-expanded", "false"); }); });
+  }
   // Suggestions under the two search boxes.
   const live = () => (jobsCache || []).filter(isLive);
   autocomplete($("#q"), $("#q-list"), (term) => {
@@ -997,10 +1028,6 @@ async function viewList() {
   $("#search").addEventListener("submit", (e) => { e.preventDefault(); sync(); $("#results").scrollIntoView({ behavior: "smooth", block: "start" }); });
   $("#q").addEventListener("input", sync);
   $("#where").addEventListener("input", sync);
-  app.querySelectorAll(".toolbar select").forEach((s) => s.addEventListener("change", () => {
-    filters[s.name] = s.value;
-    if (s.name === "sort" && s.value === "near" && !filters.near) locate(); else draw();
-  }));
   app.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => {
     filters.category = b.dataset.cat;
     app.querySelectorAll("[data-cat]").forEach((x) => x.classList.toggle("on", x === b)); draw();
@@ -1021,7 +1048,7 @@ async function viewList() {
       if (bestKm > 60) { label.textContent = "Use my location"; toast("You seem to be outside Negros Occidental. Type a city instead."); return; }
       filters.near = here; filters.nearCity = best; filters.sort = "near"; filters.where = best;
       const w = $("#where"); if (w) w.value = best;
-      label.textContent = `Near ${best}`; $("#f-sort").value = "near"; draw();
+      label.textContent = `Near ${best}`; setMsel("sort", "near"); draw();
     }, () => { label.textContent = "Use my location"; toast("Couldn't get your location. Type your city instead."); }, { timeout: 10000, maximumAge: 600000 });
   };
   $("#near").addEventListener("click", locate);
@@ -1032,8 +1059,9 @@ async function viewList() {
     if (!$("#results")) return;
     draw();
     const live = jobsCache.filter(isLive);
-    $("#stat-jobs").textContent = live.length;
-    $("#stat-cities").textContent = new Set(live.map((j) => j.city)).size;
+    const nJobs = live.length, nCities = new Set(live.map((j) => j.city)).size;
+    $("#stat-jobs-wrap").innerHTML = `<strong>${nJobs}</strong> open job${nJobs === 1 ? "" : "s"}`;
+    $("#stat-cities-wrap").innerHTML = `<strong>${nCities}</strong> ${nCities === 1 ? "town" : "towns"}`;
   } catch (err) { console.error(err); if ($("#results")) $("#results").innerHTML = `<p class="error">Could not load jobs. Please refresh.</p>`; }
 }
 
