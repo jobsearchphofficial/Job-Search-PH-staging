@@ -1333,3 +1333,9 @@ input.bad { border-color: var(--red, #c0392b); box-shadow: 0 0 0 3px rgba(192, 5
 }
 .hero h1 { text-wrap: balance; }
 .hero p { text-wrap: pretty; max-width: 600px; }
+.msel-list { max-height: 320px; overflow-y: auto; }
+.toolbar { margin-top: 18px; }
+@media (max-width: 640px) {
+  .toolbar-filters { grid-template-columns: 1fr 1fr; }
+  .msel:nth-child(odd) .msel-list { left: 0; right: auto; }
+}

@@ -1,7 +1,7 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793272000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793272000";
-import { fitScore, rankApplicants } from "./match.js?v=1793272000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793272000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793273000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793273000";
+import { fitScore, rankApplicants } from "./match.js?v=1793273000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793273000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -909,13 +909,10 @@ async function viewList() {
       </div>
       ${user ? "" : `<div class="hero-actions"><a class="btn btn-ghost btn-sm" href="#/signin" data-action="gosignin" data-intent="jobseeker" data-purpose="Create your free profile">Create a free profile</a><a class="btn btn-ghost btn-sm" href="#/signin" data-action="gosignin" data-intent="employer" data-purpose="Sign in to post a job">I'm hiring</a></div>`}
     </section>
-    <nav class="cat-chips" aria-label="Categories">
-      <button class="cat ${!filters.category ? "on" : ""}" data-cat="">All jobs</button>
-      ${CATEGORIES.map((c) => `<button class="cat ${filters.category === c ? "on" : ""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}
-    </nav>
     <div class="toolbar">
       <span id="count" class="muted"></span>
       <div class="toolbar-filters">
+        ${msel("category", "Job", [["", "All jobs"], ...CATEGORIES.map((c) => [c, c])], filters.category)}
         ${msel("type", "Type", [["", "Any type"], ...TYPES.map((t) => [t, t])], filters.type)}
         ${msel("minPay", "Pay", PAY_STEPS, filters.minPay)}
         ${msel("sort", "Sort", [["new", "Newest"], ["pay", "Highest pay"], ["near", "Nearest"]], filters.sort)}
