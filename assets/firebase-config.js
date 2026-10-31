@@ -39,3 +39,6 @@ export const RESUME_UPLOADS = false;
 // "Continue with Facebook". Turn on only after the Facebook app is set up and the Facebook
 // provider is enabled in this site's Firebase project (Authentication → Sign-in method).
 export const FB_LOGIN = { staging: true, live: false }[IS_STAGING ? "staging" : "live"];
+// Meta Pixel ID (Events Manager → Data sources). Empty = no Pixel and no cookie banner.
+// Only used on the real site; the test site never loads it.
+export const META_PIXEL_ID = IS_STAGING ? "" : "";

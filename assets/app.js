@@ -1,7 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793273000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793273000";
-import { fitScore, rankApplicants } from "./match.js?v=1793273000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793273000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793274000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793274000";
+import { fitScore, rankApplicants } from "./match.js?v=1793274000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793274000";
+import { initPixel, track } from "./pixel.js?v=1793274000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1237,7 +1238,7 @@ async function renderApplyPanel(j, isOwner) {
   $("#apply-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = e.target.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Sending…";
-    try { await store.apply(j, e.target.message.value.trim()); clearDraft(`apply:${j.id}`); myAppsCache = null; toast("Application sent"); renderApplyPanel(j, false); }
+    try { await store.apply(j, e.target.message.value.trim()); clearDraft(`apply:${j.id}`); myAppsCache = null; toast("Application sent"); track("SubmitApplication", { content_category: j.category }); renderApplyPanel(j, false); }
     catch (err) {
       console.error(err); btn.disabled = false; btn.textContent = "Apply now";
       if (err.code === "limit-reached") { renderApplyPanel(j, false); return toast(limitMsg.applies); }
@@ -1579,6 +1580,7 @@ function viewProfile(focus) {
         await store.saveProfile(data);
         clearDraft(`profile:${role}`); clearDraft("role");
         if (isNew) {
+          track("CompleteRegistration", { content_name: role });
           const no = await store.claimFounder();
           if (no) {
             FOUNDERS = await store.founders();
@@ -2272,6 +2274,7 @@ async function viewPost(editId = null) {
         return;
       }
       await store.createJob(data, contact);
+      track("Lead", { content_name: "job_post", content_category: data.category });
       clearDraft("post");
       jobsCache = null;
       app.innerHTML = `<div class="empty"><h1>Thanks! Your post is under review.</h1><p class="muted">We'll check it soon. Applicants will appear under My posts once it's live.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a> <a class="btn btn-ghost" href="#/post" id="again">Post another</a></p></div>`;
@@ -3759,7 +3762,7 @@ function viewStatic(page) {
     privacy: {
       title: "Privacy policy",
       html: legalPage("Privacy policy", "How Job Search PH collects, uses and protects your personal data, in line with the Data Privacy Act of 2012 (RA 10173) and the rules of the National Privacy Commission.", [
-        ["Data we collect", `<ul><li><strong>Account:</strong> your email and sign-in method (Google, Facebook, or email and password). If you use Facebook, we only receive your name, email and profile picture, and we never post to your Facebook.</li><li><strong>Jobseeker profile:</strong> name, photo (optional), birthdate (we show employers your age, not your birthdate), gender, mobile number, city, Messenger, jobs wanted, experience, skills, work history, education and resume link.</li><li><strong>Employer profile:</strong> name, photo (optional), household or business name, mobile number, city and Messenger.</li><li><strong>Activity on the site:</strong> job posts, applications, chat messages, interview and hiring status, notifications, reports and support messages.</li><li><strong>Get Verified (optional, for employers and jobseekers):</strong> a photo of your ID and a selfie holding it. They're stamped "Job Search PH · verification only" on your device before sending, and their location and camera details are removed. Only Job Search PH admins see them, only to confirm you're a real person. They're deleted as soon as we approve or reject, or after 14 days if we haven't. We keep only that you were verified, the type of ID and the date.</li><li><strong>Anti-spam counters:</strong> how many applications, posts, messages and reports you sent today.</li><li><strong>On your device only:</strong> your light or dark mode choice.</li></ul><p>We don't use advertising trackers, and we don't sell your data.</p>`],
+        ["Data we collect", `<ul><li><strong>Account:</strong> your email and sign-in method (Google, Facebook, or email and password). If you use Facebook, we only receive your name, email and profile picture, and we never post to your Facebook.</li><li><strong>Jobseeker profile:</strong> name, photo (optional), birthdate (we show employers your age, not your birthdate), gender, mobile number, city, Messenger, jobs wanted, experience, skills, work history, education and resume link.</li><li><strong>Employer profile:</strong> name, photo (optional), household or business name, mobile number, city and Messenger.</li><li><strong>Activity on the site:</strong> job posts, applications, chat messages, interview and hiring status, notifications, reports and support messages.</li><li><strong>Get Verified (optional, for employers and jobseekers):</strong> a photo of your ID and a selfie holding it. They're stamped "Job Search PH · verification only" on your device before sending, and their location and camera details are removed. Only Job Search PH admins see them, only to confirm you're a real person. They're deleted as soon as we approve or reject, or after 14 days if we haven't. We keep only that you were verified, the type of ID and the date.</li><li><strong>Anti-spam counters:</strong> how many applications, posts, messages and reports you sent today.</li><li><strong>On your device only:</strong> your light or dark mode choice, and whether you allowed ad cookies.</li></ul><p><strong>Ad cookies (only if you allow them):</strong> we may ask to use the Meta (Facebook) Pixel to see which of our ads bring people to Job Search PH. It only loads if you tap <strong>Allow</strong>, and you can change your choice anytime with <strong>Ad cookies</strong> at the bottom of the page. It tells Meta which public pages you visited and when you sign up, apply or post a job, together with information your browser normally sends (such as your device and IP address). We never send Meta your name, email, phone number, messages or ID photos, and we never report private pages like chats or your profile.</p><p>We don't sell your data.</p>`],
         ["Why we use it", `<ul><li>To run your account and show your posts, applications and messages;</li><li>To share your profile with employers you apply to, and employer contact details with the worker they hire;</li><li>To review job posts, prevent spam, fraud and abuse, and handle reports and appeals;</li><li>To reply to support requests and improve the site;</li><li>If you turn on job alerts, to email you new jobs that match the jobs and city on your profile. Emails are sent through our email provider, Resend. Unsubscribe with the link in any email or in My profile.</li></ul>`],
         ["Who can see it", `<ul><li><strong>Everyone:</strong> live job posts (title, employer or household name, area, pay and details). Employer contact details are not public.</li><li><strong>Employers you apply to:</strong> your profile, photo, age, contact details, message, experience and resume.</li><li><strong>The worker you hire:</strong> the employer contact you entered on the post, once they accept your job offer.</li><li><strong>The person you're chatting with:</strong> your messages.</li><li><strong>Job Search PH admins:</strong> all data, only to run and keep the site safe.</li><li><strong>Service provider:</strong> the site runs on Google Firebase, which stores data for us under its own security and privacy terms.</li></ul><p>We may also disclose data when the law requires it, such as a lawful order from the authorities.</p>`],
         ["How long we keep it", `<ul><li>Your profile stays until you delete it.</li><li>Job posts expire after 30 days and stay in your account until removed.</li><li>Applications and chats stay so both sides can refer back to them. Chats with declined applicants close after 48 hours but remain readable.</li><li>Reports and safety records are kept as long as needed to protect users, then deleted.</li></ul>`],
@@ -3843,6 +3846,7 @@ async function route() {
 }
 
 window.addEventListener("hashchange", route);
+initPixel();
 setTheme(getTheme());
 let foundersLoaded = false;
 onAuth(async (s) => {
