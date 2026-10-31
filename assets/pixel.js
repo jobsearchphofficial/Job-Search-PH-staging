@@ -3,7 +3,7 @@
 // - Asks first ("Allow / No thanks"); the choice is remembered on this device and can be changed from the footer.
 // - Sends no names, emails or phone numbers (no advanced matching, no automatic events).
 // - Only reports public pages: never chats, messages, profile, admin, ID checks or email links.
-import { META_PIXEL_ID } from "./firebase-config.js?v=1793274000";
+import { META_PIXEL_ID } from "./firebase-config.js?v=1793275000";
 
 const KEY = "jsph-ads-consent";
 const PUBLIC = /^#?\/?($|job\/|jobs|post|join\/|signin|safety|terms|privacy|support)/;
@@ -45,8 +45,8 @@ export function track(event, data = {}) {
 function banner() {
   if (document.getElementById("ads-consent")) return;
   const el = document.createElement("div");
-  el.id = "ads-consent"; el.className = "consent"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Ad cookies");
-  el.innerHTML = `<p><strong>Help us reach more people.</strong> Can we use Meta (Facebook) cookies to see which of our ads work? We never share your name, email or messages. <a href="#/privacy">Privacy</a></p>
+  el.id = "ads-consent"; el.className = "consent"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Cookies");
+  el.innerHTML = `<p>We use cookies to improve Job Search PH. <a href="#/privacy">Learn more</a></p>
     <div class="consent-actions"><button type="button" class="btn btn-ghost btn-sm" data-c="no">No thanks</button><button type="button" class="btn btn-primary btn-sm" data-c="yes">Allow</button></div>`;
   el.addEventListener("click", (e) => {
     const b = e.target.closest("[data-c]"); if (!b) return;
@@ -56,7 +56,7 @@ function banner() {
   document.body.appendChild(el);
 }
 
-// Footer link "Ad cookies" lets people change their mind.
+// Footer link "Cookies" lets people change their mind.
 export function openConsent() { if (!META_PIXEL_ID) return; try { localStorage.removeItem(KEY); } catch {} if (loaded) location.reload(); else banner(); }
 
 export function initPixel() {

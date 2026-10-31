@@ -1345,3 +1345,5 @@ input.bad { border-color: var(--red, #c0392b); box-shadow: 0 0 0 3px rgba(192, 5
 .consent p strong { color: var(--navy); }
 .consent-actions { display: flex; gap: 8px; flex: none; }
 @media (max-width: 560px) { .consent { flex-direction: column; align-items: stretch; } .consent-actions { justify-content: flex-end; } }
+.consent { max-width: 460px; }
+@media (max-width: 560px) { .consent { flex-direction: row; align-items: center; } }
