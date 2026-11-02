@@ -1354,7 +1354,7 @@ input.bad { border-color: var(--red, #c0392b); box-shadow: 0 0 0 3px rgba(192, 5
 
 /* =====================================================================
    Redesign (Nov 2026): a community job board, not a startup landing page.
-   One readable family (Lexend, made for easier reading), cool gray page, white
+   One professional family (Plus Jakarta Sans), cool gray page, white
    surfaces, brand blue for actions, green for pay, signboard yellow used
    only for the "Hiring?" panel and "New" markers. No gradients, no glow
    shadows, no hover lifts.
@@ -1379,12 +1379,12 @@ input.bad { border-color: var(--red, #c0392b); box-shadow: 0 0 0 3px rgba(192, 5
   --radius-sm: 10px;
   --shadow: 0 1px 2px rgba(20, 33, 61, .06), 0 8px 24px -12px rgba(20, 33, 61, .18);
   --shadow-sm: 0 1px 2px rgba(20, 33, 61, .06);
-  --font: "Lexend", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --header-bg: rgba(255, 255, 255, .96);
 }
 :root[data-theme="dark"] { --sign: #f2c94c; --sign-ink: #2a2100; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sign: #f2c94c; --sign-ink: #2a2100; } }
-body { background: var(--bg); font-size: 15.5px; line-height: 1.55; letter-spacing: -.005em; }
+body { background: var(--bg); font-size: 15.5px; line-height: 1.55; }
 h1 { font-weight: 800; letter-spacing: -.025em; }
 h2, h3 { font-weight: 700; letter-spacing: -.01em; }
 /* Buttons: flat, solid, honest */
@@ -1482,3 +1482,15 @@ h2, h3 { font-weight: 700; letter-spacing: -.01em; }
 .meta li, .benefits li { border-radius: 6px; }
 .benefits li { font-weight: 500; }
 .badge { border-radius: 6px; }
+
+/* "Hiring?" panel in the brand navy instead of yellow; "New" tag in brand blue */
+.side-hire { background: var(--navy); color: #fff; }
+.side-hire h2, .side-hire p, .side-hire ol { color: #fff; }
+.side-hire p, .side-hire ol { color: rgba(255, 255, 255, .82); }
+.side-hire h2 { font-size: 1.45rem; }
+.side-hire .btn-ink { background: #fff; color: var(--navy); }
+.side-hire .btn-ink:hover { background: var(--indigo-soft); color: var(--navy); }
+.jtag-new { background: var(--indigo-soft); color: var(--indigo-deep); }
+.card.jrow.card-featured { background: #f7f9ff; }
+:root[data-theme="dark"] .side-hire { background: #1d2a52; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .side-hire { background: #1d2a52; } }
