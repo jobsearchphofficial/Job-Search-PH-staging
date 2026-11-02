@@ -42,7 +42,7 @@ service cloud.firestore {
 
     /* ---------- Profiles ---------- */
     // First and last name: at least two words of 2+ characters.
-    function fullName(n) { return n.matches('[ ]*[^ ]{2,}( +[^ ]+)* +[^ ]{2,}[ ]*'); }
+    function fullName(n) { return n.matches('[ ]*[^ ]{2,}( +[^ ]+)* +[^ ]{2,}[ ]*') && n.matches('(?s).*\\p{L}\\p{L}.* .*\\p{L}\\p{L}.*'); }
     function validProfile(d) {
       return d.keys().hasOnly([
           'role','fullName','phone','city','messenger','consent','createdAt','updatedAt',
@@ -482,6 +482,14 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly(['reason', 'note', 'bannedAt', 'bannedBy', 'name'])
                     && str(request.resource.data.reason, 1, 80) && str(request.resource.data.get('note', ''), 0, 500);
       allow delete: if isAdmin();
+    }
+
+    // Watchlist: accounts an admin flagged as suspicious. Admins only; the user never sees it.
+    match /watch/{uid} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin()
+                    && request.resource.data.keys().hasOnly(['reason', 'note', 'at', 'by'])
+                    && str(request.resource.data.reason, 1, 80) && str(request.resource.data.get('note', ''), 0, 500);
     }
 
     match /admins/{uid} {

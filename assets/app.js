@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793276000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793276000";
-import { fitScore, rankApplicants } from "./match.js?v=1793276000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793276000";
-import { initPixel, track } from "./pixel.js?v=1793276000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793277000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793277000";
+import { fitScore, rankApplicants } from "./match.js?v=1793277000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793277000";
+import { initPixel, track } from "./pixel.js?v=1793277000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -2966,6 +2966,7 @@ function viewSuspended(ban) {
 }
 
 /* ---------------- Admin: users ---------------- */
+const FLAG_REASONS = ["Fake or joke name", "Suspicious job post", "Possible scam", "Throwaway or fake email", "Duplicate account", "Other"];
 const BAN_REASONS = ["Scam or asking for money", "Fake or misleading job posts", "Harassment or abusive messages", "Fake profile or impersonation", "Spam", "Underage user", "Other"];
 let usersFilter = { q: "", role: "all", sort: "new" };
 async function renderUsers(body) {
@@ -2973,6 +2974,7 @@ async function renderUsers(body) {
   let data;
   try { data = await store.adminAll(); } catch (e) { console.error(e); body.innerHTML = `<div class="empty"><p>Couldn't load users (${esc(e.code || e.message)}).</p></div>`; return; }
   const bans = Object.fromEntries(data.bans.map((b) => [b.id, b]));
+  const watch = Object.fromEntries((data.watch || []).map((w) => [w.id, w]));
   const postsBy = {}, appsBy = {}, reportsBy = {};
   data.jobs.forEach((j) => (postsBy[j.ownerUid] = (postsBy[j.ownerUid] || 0) + 1));
   data.apps.forEach((a) => (appsBy[a.applicantUid] = (appsBy[a.applicantUid] || 0) + 1));
@@ -2982,13 +2984,14 @@ async function renderUsers(body) {
     const q = usersFilter.q.trim().toLowerCase();
     let list = data.users.filter((u) => {
       if (usersFilter.role === "banned") { if (!bans[u.id]) return false; }
+      else if (usersFilter.role === "flagged") { if (!watch[u.id]) return false; }
       else if (usersFilter.role === "reported") { if (!reportsBy[u.id]) return false; }
       else if (usersFilter.role !== "all" && u.role !== usersFilter.role) return false;
       return !q || [u.fullName, u.email, u.phone, u.city, u.companyName, u.id].some((v) => String(v || "").toLowerCase().includes(q));
     });
     list.sort(usersFilter.sort === "name" ? (a, b) => String(a.fullName).localeCompare(String(b.fullName)) : (a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const n = (f) => data.users.filter(f).length;
-    const chips = [["all", "All", data.users.length], ["jobseeker", "Jobseekers", n((u) => u.role === "jobseeker")], ["employer", "Employers", n((u) => u.role === "employer")], ["reported", "Reported", n((u) => reportsBy[u.id])], ["banned", "Banned", n((u) => bans[u.id])]];
+    const chips = [["all", "All", data.users.length], ["jobseeker", "Jobseekers", n((u) => u.role === "jobseeker")], ["employer", "Employers", n((u) => u.role === "employer")], ["reported", "Reported", n((u) => reportsBy[u.id])], ["flagged", "Flagged", n((u) => watch[u.id])], ["banned", "Banned", n((u) => bans[u.id])]];
     body.innerHTML = `
       <div class="us-bar">
         <label class="us-search">${ICON.search}<input type="search" id="us-q" placeholder="Search name, email, phone or city" value="${esc(usersFilter.q)}" autocomplete="off"></label>
@@ -3007,6 +3010,7 @@ async function renderUsers(body) {
             ${u.role === "jobseeker" ? strengthChip(u) : ""}
             <span class="muted small">${u.role === "employer" ? `${postsBy[u.id] || 0} post${postsBy[u.id] === 1 ? "" : "s"}` : `${appsBy[u.id] || 0} application${appsBy[u.id] === 1 ? "" : "s"}`}</span>
             ${reportsBy[u.id] ? `<span class="badge badge-app-shortlisted">${reportsBy[u.id]} report${reportsBy[u.id] === 1 ? "" : "s"}</span>` : ""}
+            ${watch[u.id] ? `<span class="badge badge-flagged" title="${esc(watch[u.id].reason)}">Flagged</span>` : ""}
             ${bans[u.id] ? `<span class="badge badge-banned">Banned</span>` : ""}
           </span>
         </a>`).join("")}</div>${list.length > 300 ? `<p class="muted small">Showing the first 300. Search to narrow it down.</p>` : ""}` : `<div class="empty"><p>No users match.</p></div>`}`;
@@ -3062,7 +3066,7 @@ async function viewAdminUser(id) {
           ${avatar(u.fullName, u.photo, "lg")}
           <div><h1>${esc(u.fullName || "(no name)")}</h1>
             <p class="muted">${isSeeker ? "Jobseeker" : "Employer"}${u.companyName && !isSeeker ? ` · ${esc(u.companyName)}` : ""}${u.city ? ` · ${esc(u.city)}` : ""}</p>
-            <div class="au-tags">${verifiedBadge(u.id)}${founderBadge(u.id, u.role)}${isSeeker ? strengthChip(u) : ""}${ban ? `<span class="badge badge-banned">Banned</span>` : `<span class="badge badge-approved">Active</span>`}</div></div>
+            <div class="au-tags">${verifiedBadge(u.id)}${founderBadge(u.id, u.role)}${isSeeker ? strengthChip(u) : ""}${d.watch ? `<span class="badge badge-flagged">Flagged</span>` : ""}${ban ? `<span class="badge badge-banned">Banned</span>` : `<span class="badge badge-approved">Active</span>`}</div></div>
         </header>
         <dl class="ap-facts au-facts">${facts.join("")}</dl>
         ${isSeeker ? `<div class="ap-long au-long">
@@ -3075,14 +3079,22 @@ async function viewAdminUser(id) {
       <aside class="au-side">
         ${u.role ? `<div class="an-card au-verify">${VERIFIED[id] ? `<h3>${SHIELD} Verified ${isSeeker ? "jobseeker" : "employer"}</h3><p class="small muted">${esc(VERIFIED[id].method)}${VERIFIED[id].at ? ` · ${ago(VERIFIED[id].at)}` : ""}</p><button class="btn btn-ghost btn-block" id="au-unverify">Remove Verified badge</button>`
           : `<h3>Verify this ${isSeeker ? "jobseeker" : "employer"}</h3><p class="small muted">Call their number or check their Facebook first. ${isSeeker ? "Verified jobseekers get a badge employers see when they apply." : "Verified employers get a badge on every post."}</p><button class="btn btn-ghost btn-block" id="au-verify">Verify ${isSeeker ? "jobseeker" : "employer"}</button>`}</div>` : ""}
+        <div class="an-card au-ban au-flag ${d.watch ? "is-flagged" : ""}">
+          ${d.watch ? `<h3>${ADMIN_ICONS.flag} On your watchlist</h3><p class="small"><strong>Reason:</strong> ${esc(d.watch.reason)}</p>${d.watch.note ? `<p class="small muted">${esc(d.watch.note)}</p>` : ""}<p class="small muted">Flagged ${d.watch.at ? ago(d.watch.at) : ""}</p>
+            <button class="btn btn-ghost btn-block" id="au-unflag">Remove flag</button>`
+          : `<h3>Flag this account</h3><p class="small muted">Only admins see flags. Nothing changes for the user. Use it for accounts you want to keep an eye on.</p>
+            <label class="small">Reason<select id="au-freason">${FLAG_REASONS.map((r) => `<option>${esc(r)}</option>`).join("")}</select></label>
+            <label class="small">Note (optional)<textarea id="au-fnote" rows="2" maxlength="500" placeholder="What did you notice?"></textarea></label>
+            <button class="btn btn-ghost btn-block" id="au-flag">Flag account</button>`}
+        </div>
         <div class="an-card au-ban ${ban ? "" : "quiet"}">
           ${ban ? `<h3>Banned</h3><p class="small"><strong>Reason:</strong> ${esc(ban.reason)}</p>${ban.note ? `<p class="small muted">${esc(ban.note)}</p>` : ""}<p class="small muted">Since ${ban.bannedAt ? ago(ban.bannedAt) : "–"}</p>
             <button class="btn btn-ghost btn-block" id="au-unban">Lift ban</button>`
-          : `<details class="au-more"><summary>More actions</summary><h3>Ban this user</h3><p class="small muted">They'll still be able to sign in, but can't post, apply, message, report or edit their profile. They'll see a "suspended" screen with a link to support.</p>
+          : `<h3>Ban this user</h3><p class="small muted">They'll still be able to sign in, but can't post, apply, message, report or edit their profile. They'll see a "suspended" screen with a link to support.</p>
             <label class="small">Reason<select id="au-reason">${BAN_REASONS.map((r) => `<option>${esc(r)}</option>`).join("")}</select></label>
             <label class="small">Note (optional, shown only to admins)<textarea id="au-note" rows="2" maxlength="500" placeholder="What happened?"></textarea></label>
             ${!isSeeker && live.length ? `<label class="check small"><input type="checkbox" id="au-close" checked><span>Also close their ${live.length} live post${live.length === 1 ? "" : "s"}</span></label>` : ""}
-            <button class="btn btn-danger btn-block" id="au-ban">Ban user</button></details>`}
+            <button class="btn btn-danger btn-block" id="au-ban">Ban user</button>`}
         </div>
         ${user.uid === id ? `<p class="small muted">This is your own account.</p>` : ""}
       </aside>
@@ -3107,6 +3119,14 @@ async function viewAdminUser(id) {
   $("#au-unverify")?.addEventListener("click", async (e) => {
     if (!confirmInline(e.target, "Click again to remove")) return;
     try { VERIFIED = await store.unverify(id); toast("Badge removed"); viewAdminUser(id); } catch { toast("Couldn't remove. Try again."); }
+  });
+  $("#au-flag")?.addEventListener("click", async () => {
+    try { await store.flagUser(id, { reason: $("#au-freason").value, note: $("#au-fnote").value.trim() }); toast("Flagged"); viewAdminUser(id); }
+    catch (e) { console.error(e); toast(e.code === "permission-denied" ? "Couldn't flag. Publish the latest database rules first." : "Couldn't flag. Try again."); }
+  });
+  $("#au-unflag")?.addEventListener("click", async (e) => {
+    if (!confirmInline(e.target, "Click again to remove")) return;
+    try { await store.unflagUser(id); toast("Flag removed"); viewAdminUser(id); } catch { toast("Couldn't remove the flag."); }
   });
   $("#au-unban")?.addEventListener("click", async () => {
     const ok = await showDialog({ title: "Lift the ban?", body: "They'll be able to use Job Search PH normally again. Closed posts stay closed.", actions: [{ label: "Cancel", value: false }, { label: "Lift ban", value: true, primary: true }] });

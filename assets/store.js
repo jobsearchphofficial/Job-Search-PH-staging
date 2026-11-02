@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793276000";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793277000";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -517,24 +517,28 @@ export const store = {
   // Admin analytics: everything in one go (fine at early scale; capped per collection).
   async adminAll() {
     const q = async (c) => (await F.getDocs(F.query(F.collection(db, c), F.limit(5000)))).docs.map(norm);
-    const [users, jobs, apps, reports, support, bans, verified, visits, campaigns] = await Promise.all([q("users"), q("jobs"), q("applications"), q("reports").catch(() => []), q("support").catch(() => []), q("bans").catch(() => []), q("verified").catch(() => []), q("visits").catch(() => []), q("campaigns").catch(() => [])]);
-    return { users, jobs, apps, reports, support, bans, verified, visits, campaigns };
+    const [users, jobs, apps, reports, support, bans, verified, visits, campaigns, watch] = await Promise.all([q("users"), q("jobs"), q("applications"), q("reports").catch(() => []), q("support").catch(() => []), q("bans").catch(() => []), q("verified").catch(() => []), q("visits").catch(() => []), q("campaigns").catch(() => []), q("watch").catch(() => [])]);
+    return { users, jobs, apps, reports, support, bans, verified, visits, campaigns, watch };
   },
   // Tracked links / ad campaigns (admin only): name = the ?src= value.
   async saveCampaign(src, data) { await F.setDoc(F.doc(db, "campaigns", src), { ...data, updatedAt: F.serverTimestamp() }, { merge: true }); },
   async deleteCampaign(src) { await F.deleteDoc(F.doc(db, "campaigns", src)); },
   async adminUser(id) {
-    const [u, b, posts, applied] = await Promise.all([
+    const [u, b, posts, applied, w] = await Promise.all([
       F.getDoc(F.doc(db, "users", id)), F.getDoc(F.doc(db, "bans", id)).catch(() => null),
       jobsQ(F.where("ownerUid", "==", id)), appsQ(F.where("applicantUid", "==", id)),
+      F.getDoc(F.doc(db, "watch", id)).catch(() => null),
     ]);
     const received = (await appsQ(F.where("employerUid", "==", id)).catch(() => []));
-    return { user: u.exists() ? norm(u) : null, ban: b?.exists() ? norm(b) : null, posts, applied, received };
+    return { user: u.exists() ? norm(u) : null, ban: b?.exists() ? norm(b) : null, watch: w?.exists() ? norm(w) : null, posts, applied, received };
   },
   async ban(id, { reason, note, name }) {
     await F.setDoc(F.doc(db, "bans", id), { reason, note: note || "", name: name || "", bannedAt: F.serverTimestamp(), bannedBy: uid() });
   },
   async unban(id) { await F.deleteDoc(F.doc(db, "bans", id)); },
+  // Watchlist: admin-only flag on suspicious accounts. The user can't see it and nothing changes for them.
+  async flagUser(id, { reason, note }) { await F.setDoc(F.doc(db, "watch", id), { reason, note: note || "", at: F.serverTimestamp(), by: uid() }); },
+  async unflagUser(id) { await F.deleteDoc(F.doc(db, "watch", id)); },
   /* ---- Verified employers (checked by an admin) ---- */
   async verifiedList(force = false) {
     if (!force && verifiedCache) return verifiedCache;
