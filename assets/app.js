@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793275000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793275000";
-import { fitScore, rankApplicants } from "./match.js?v=1793275000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793275000";
-import { initPixel, track } from "./pixel.js?v=1793275000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793276000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793276000";
+import { fitScore, rankApplicants } from "./match.js?v=1793276000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793276000";
+import { initPixel, track } from "./pixel.js?v=1793276000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -209,6 +209,8 @@ function riskFlags(j, owner, ctx) {
   if (ageH != null && ageH < 24) f.push(["warn", `Brand-new account (made ${ago(owner.createdAt)})`]);
   if (owner.signIn === "password" && !owner.emailVerified) f.push(["warn", "Email not confirmed (signed up with email & password)"]);
   if (!owner.fbUrl) f.push(["warn", "No Facebook link on their profile"]);
+  const mw = j.workplace && j.salaryMin ? minimumPay(j.city, j.workplace, j.salaryPeriod) : null;
+  if (mw && j.salaryMin < mw.amount) f.push(["bad", `Pay below legal minimum: ₱${Number(j.salaryMin).toLocaleString("en-PH")} vs ₱${mw.amount.toLocaleString("en-PH")} per ${j.salaryPeriod || "month"} (${mw.region})`]);
   const txt = `${j.title} ${j.description} ${j.requirements || ""}`;
   const sw = txt.match(SCAM_WORDS); if (sw) f.push(["bad", `Post mentions “${sw[0]}” — common in scam posts`]);
   if (/(\+?63|0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}/.test(txt) || /https?:\/\/|www\.|\.com\b/i.test(txt)) f.push(["warn", "Phone number or link inside the job text"]);
@@ -894,7 +896,7 @@ async function viewList() {
     <section class="hero">
       <span class="eyebrow">Free for jobseekers · No fees, ever</span>
       <h1>Find work near you in <em>Negros Occidental</em></h1>
-      <p>Household, service and local jobs in Bacolod and nearby towns. Every post is checked by our team and pays at least the legal minimum wage.</p>
+      <p>Household, service and local jobs in Bacolod and nearby towns. Every post is checked by our team before it goes live.</p>
       <form class="search2" id="search" role="search">
         <div class="field ac"><span class="ico">${ICON.search}</span><label class="sr" for="q">What</label>
           <input type="search" id="q" name="q" placeholder="Job title or keyword" value="${esc(filters.q)}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="q-list" aria-autocomplete="list">
@@ -2133,8 +2135,8 @@ async function viewPost(editId = null) {
     const n = f.description.value.trim().length; counter.textContent = n < 30 ? `${n}/30 characters minimum` : `${n} characters`;
     f.querySelectorAll(".crow").forEach((r) => { r.querySelector("[name=cValue]").placeholder = ph[r.querySelector("[name=cMethod]").value] || ""; });
     const box = $("#wage-box"); const min = currentMin(); const pay = Number(f.salaryMin.value) || 0; const per = val("salaryPeriod") || "month";
-    // Only speak up when something is wrong: pay below the legal minimum, or pay that looks like a typo.
-    const low = min && pay && pay < min.amount;
+    // Only speak up when the pay looks like a typo. (Pay below the legal minimum is flagged for the admin instead.)
+    const low = false;
     const pw = pay ? payWarning({ workplace: workplace(), salaryPeriod: per, salaryMin: f.salaryMin.value, salaryMax: per === "month" ? f.salaryMax.value : "" }) : null;
     box.hidden = !low && !pw;
     box.className = `wage-box ${low ? "low" : pw ? "odd" : ""}`;
@@ -2229,7 +2231,7 @@ async function viewPost(editId = null) {
       const msgs = {
         workplace: "Choose who's hiring: a private household or a business.", employerName: "Add the employer or household name.",
         title: "Add a job title (at least 3 characters).", category: "Choose a category.", arrangement: "Choose live-in or stay-out.",
-        city: "Choose the city or municipality.", salaryMin: "Enter the pay. It must meet the legal minimum.",
+        city: "Choose the city or municipality.", salaryMin: "Enter the pay.",
         description: "Write a description of at least 30 characters: duties, schedule, household size.",
         agreeWage: "Confirm that you'll pay at least the legal minimum.", agreeFee: "Confirm that you won't charge applicants any fee.",
         agreeAge: "Confirm that you'll only hire workers aged 18 or older.", agreeTerms: "Confirm that you'll follow labor law and the Terms.",
@@ -2245,8 +2247,6 @@ async function viewPost(editId = null) {
     f.city.value = okCity;
     const data = collect();
     if (data.salaryMax && data.salaryMax < data.salaryMin) return fail("The 'To' amount should be higher than 'From'.", f.salaryMax);
-    const min = currentMin();
-    if (min && data.salaryMin < min.amount) return fail(`The pay is below the legal minimum of ₱${min.amount.toLocaleString("en-PH")} per ${data.salaryPeriod}. Please raise it.`, f.salaryMin);
     if (!(data.daysOff >= 2)) return fail("The minimum is 2 days off per month.", f.daysOff);
     const rows = [...f.querySelectorAll(".crow")].map((r) => ({ el: r.querySelector("[name=cValue]"), contactMethod: r.querySelector("[name=cMethod]").value, contactValue: r.querySelector("[name=cValue]").value.trim() })).filter((c) => c.contactValue);
     if (!rows.length) return fail("Add at least one way for the person you hire to reach you.", $("#add-contact"));
@@ -3698,7 +3698,7 @@ function viewStatic(page) {
             <ul class="tips">
               <li><strong>Never pay to get a job.</strong> No real employer asks for a processing, training, medical, uniform or "reservation" fee. Under the Kasambahay Law, household workers can't be charged placement fees.</li>
               <li><strong>Keep your IDs and money safe.</strong> Don't send ID photos, bank, GCash or OTP codes before an interview, and never send money to an employer.</li>
-              <li><strong>Check the pay.</strong> Every job here must pay at least the legal minimum. In Negros Occidental, that's ₱6,500 a month for household workers.</li>
+              <li><strong>Check the pay.</strong> Make sure the job pays at least the legal minimum. In Negros Occidental, that's ₱6,500 a month for household workers.</li>
               <li><strong>Talk here first.</strong> Use the chat on Job Search PH until you trust the employer. It keeps a record if something goes wrong.</li>
               <li><strong>Meet safely.</strong> Go to the first interview in daytime, tell family the address, or bring someone you trust.</li>
               <li><strong>Get it in writing.</strong> Ask for a written contract with pay, hours, days off and benefits (SSS, PhilHealth, Pag-IBIG once covered).</li>
@@ -3724,7 +3724,7 @@ function viewStatic(page) {
         <h2 class="faq-h">Frequently asked questions</h2>
         ${faq("Is Job Search PH free?", "Yes. Creating a profile, searching and applying are free for jobseekers, always. Posting a job is free for employers.")}
         ${faq("Is Job Search PH a recruitment agency?", "No. We're an online job listing board. Employers post their own jobs and hire directly. We don't recruit, screen, place or employ anyone, and we never charge placement fees.")}
-        ${faq("How do I know a job is real?", "Every post is reviewed before it goes live and must meet the legal minimum wage. Still, trust your instincts: if an employer asks for money, pushes you to leave the site quickly, or the details keep changing, stop and report the post.")}
+        ${faq("How do I know a job is real?", "Every post is reviewed by our team before it goes live. Still, trust your instincts: if an employer asks for money, pushes you to leave the site quickly, or the details keep changing, stop and report the post.")}
         ${faq("Why can't I see the employer's phone number?", "To protect both sides from spam and scams, you talk to employers through Messages here on Job Search PH. The employer's own contact is shared with you once you accept their job offer.")}
         ${faq("Someone asked me for money. What do I do?", "Don't pay. Tap <strong>Report this post</strong> on the job, or contact support with the details. We'll review it and may remove the post or restrict the account.")}
         ${faq("How many jobs can I apply to?", "Up to 10 a day. Employers can post up to 5 jobs a month. These limits stop spam and keep the site fair.")}
