@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793277000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793277000";
-import { fitScore, rankApplicants } from "./match.js?v=1793277000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793277000";
-import { initPixel, track } from "./pixel.js?v=1793277000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793278000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793278000";
+import { fitScore, rankApplicants } from "./match.js?v=1793278000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793278000";
+import { initPixel, track } from "./pixel.js?v=1793278000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -769,7 +769,7 @@ function renderNav() {
   const role = profile?.role;
   $("#nav").innerHTML = [
     link("#/", "Find jobs"),
-    !user || role === "employer" ? link("#/post", "Post a job") : "",
+    !user || role === "employer" ? link("#/post", "Post a job").replace('class="', 'class="nav-post ') : "",
     role === "employer" ? link("#/my", "My posts") : "",
     role === "jobseeker" ? link("#/applications", "My applications") : "",
     user && profile ? link("#/messages", `Messages${unreadMessages() ? ` <span class="dot">${unreadMessages()}</span>` : ""}`) : "",
@@ -892,14 +892,15 @@ async function viewList() {
   document.title = "Job Search PH — Jobs in Negros Occidental";
   const { user } = getAuthState();
   const cityList = CITIES.filter((c) => c !== "Other");
+  const { profile: pf0 } = getAuthState();
+  const role0 = pf0?.role || "";
   app.innerHTML = `
-    <section class="hero">
-      <span class="eyebrow">Free for jobseekers · No fees, ever</span>
-      <h1>Find work near you in <em>Negros Occidental</em></h1>
-      <p>Household, service and local jobs in Bacolod and nearby towns. Every post is checked by our team before it goes live.</p>
+    <section class="board-head">
+      <h1>Jobs in Negros Occidental</h1>
+      <p class="board-sub">Household, service and local work from employers in Bacolod and nearby towns. Free to apply, with no agency fees.</p>
       <form class="search2" id="search" role="search">
         <div class="field ac"><span class="ico">${ICON.search}</span><label class="sr" for="q">What</label>
-          <input type="search" id="q" name="q" placeholder="Job title or keyword" value="${esc(filters.q)}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="q-list" aria-autocomplete="list">
+          <input type="search" id="q" name="q" placeholder="Job, like yaya or driver" value="${esc(filters.q)}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="q-list" aria-autocomplete="list">
           <ul class="ac-list" id="q-list" role="listbox" hidden></ul></div>
         <div class="field ac"><span class="ico">${ICON.pin}</span><label class="sr" for="where">Where</label>
           <input type="search" id="where" name="where" placeholder="City, town or barangay" value="${esc(filters.where)}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="where-list" aria-autocomplete="list">
@@ -910,20 +911,40 @@ async function viewList() {
         <button class="btn btn-ghost btn-sm near" id="near" type="button">${ICON.locate}<span>${filters.near ? `Near ${esc(filters.nearCity)}` : "Use my location"}</span></button>
         <div class="hero-stats"><span id="stat-jobs-wrap"><strong id="stat-jobs">–</strong> open jobs</span><span id="stat-cities-wrap"><strong id="stat-cities">–</strong> locations</span></div>
       </div>
-      ${user ? "" : `<div class="hero-actions"><a class="btn btn-ghost btn-sm" href="#/signin" data-action="gosignin" data-intent="jobseeker" data-purpose="Create your free profile">Create a free profile</a><a class="btn btn-ghost btn-sm" href="#/signin" data-action="gosignin" data-intent="employer" data-purpose="Sign in to post a job">I'm hiring</a></div>`}
     </section>
-    <div class="toolbar">
-      <span id="count" class="muted"></span>
-      <div class="toolbar-filters">
-        ${msel("category", "Job", [["", "All jobs"], ...CATEGORIES.map((c) => [c, c])], filters.category)}
-        ${msel("type", "Type", [["", "Any type"], ...TYPES.map((t) => [t, t])], filters.type)}
-        ${msel("minPay", "Pay", PAY_STEPS, filters.minPay)}
-        ${msel("sort", "Sort", [["new", "Newest"], ["pay", "Highest pay"], ["near", "Nearest"]], filters.sort)}
+    <div class="board">
+      <div class="board-main">
+        <div class="toolbar">
+          <span id="count"></span>
+          <div class="toolbar-filters">
+            ${msel("category", "Job", [["", "All jobs"], ...CATEGORIES.map((c) => [c, c])], filters.category)}
+            ${msel("type", "Type", [["", "Any type"], ...TYPES.map((t) => [t, t])], filters.type)}
+            ${msel("minPay", "Pay", PAY_STEPS, filters.minPay)}
+            ${msel("sort", "Sort", [["new", "Newest"], ["pay", "Highest pay"], ["near", "Nearest"]], filters.sort)}
+          </div>
+        </div>
+        <div id="active-filters" class="active-filters"></div>
+        <section id="results" class="cards jlist">${SK.cards(4)}</section>
       </div>
-    </div>
-    <div id="active-filters" class="active-filters"></div>
-    <section id="results" class="cards">${SK.cards(6)}</section>
-    <aside class="notice"><strong>Stay safe:</strong> legitimate employers never ask you to pay to apply, train or get hired. <a href="#/safety">Read safety tips</a></aside>`;
+      <aside class="board-side">
+        ${role0 !== "jobseeker" ? `<section class="side-hire">
+          <h2>Hiring?</h2>
+          <p>Post a job for free. Jobseekers apply with their full profile, and you message them here.</p>
+          <ol><li>Describe the job and the pay</li><li>We check it, usually within a day</li><li>Applicants come to you</li></ol>
+          <a class="btn btn-ink btn-block" href="#/post" ${user ? "" : `data-action="gosignin" data-intent="employer" data-purpose="Sign in to post a job"`}>Post a job</a>
+        </section>` : ""}
+        ${!user ? `<section class="side-seek">
+          <h2>Looking for work?</h2>
+          <p>Make one profile, then apply to any job here in one tap.</p>
+          <a class="btn btn-ghost btn-block" href="#/signin" data-action="gosignin" data-intent="jobseeker" data-purpose="Create your free profile">Create a free profile</a>
+        </section>` : ""}
+        <section class="side-safe">
+          <h2>Stay safe</h2>
+          <p>Real employers never ask you to pay to apply, train or get hired.</p>
+          <a href="#/safety">Read the safety tips</a>
+        </section>
+      </aside>
+    </div>`;
 
   let applied = new Set();
   const distanceOf = (j) => (filters.near && CITY_COORDS[j.city] ? kmBetween(filters.near, CITY_COORDS[j.city]) : null);
@@ -1065,19 +1086,30 @@ async function viewList() {
   } catch (err) { console.error(err); if ($("#results")) $("#results").innerHTML = `<p class="error">Could not load jobs. Please refresh.</p>`; }
 }
 
+// Pay split into the amount and the period, so the list can show the amount big.
+function payParts(j) {
+  if (!j.salaryMin && !j.salaryMax) return { amt: "Pay to discuss", per: "" };
+  const per = { month: "a month", day: "a day", hour: "an hour" }[j.salaryPeriod] || "";
+  const amt = j.salaryMin && j.salaryMax && j.salaryMax !== j.salaryMin ? `${peso(j.salaryMin)}–${peso(j.salaryMax).replace("₱", "")}` : peso(j.salaryMin || j.salaryMax);
+  return { amt, per };
+}
+const NEW_MS = 3 * 864e5;
 function card(j, applied, km) {
   const perks = Array.isArray(j.benefits) ? j.benefits : [];
+  const tags = [j.employmentType, j.workplace === "household" && j.schedule && j.schedule !== j.employmentType ? j.schedule : ""].filter(Boolean);
+  const shown = perks.slice(0, 3), more = perks.length - shown.length;
+  const when = j.approvedAt || j.createdAt;
+  const isNew = when && Date.now() - when < NEW_MS;
+  const pay = payParts(j);
   return `
-  <a class="card ${j.featured ? "card-featured" : ""}" href="#/job/${encodeURIComponent(j.id)}">
-    <div class="card-top">
-      <span class="cat-tag">${esc(j.category === "Other" && j.categoryOther ? j.categoryOther : j.category)}</span>
-      ${j.featured ? `<span class="badge badge-featured">Featured</span>` : applied ? `<span class="badge badge-app-new">Applied</span>` : ""}
+  <a class="card jrow ${j.featured ? "card-featured" : ""}" href="#/job/${encodeURIComponent(j.id)}">
+    <div class="jrow-main">
+      <div class="jrow-title"><h3>${esc(j.title)}</h3>${applied ? `<span class="jtag-applied">Applied</span>` : isNew ? `<span class="jtag-new">New</span>` : ""}${j.featured ? `<span class="jtag-feat">Featured</span>` : ""}</div>
+      <p class="jrow-emp">${esc(j.employerName)} ${verifiedBadge(j.ownerUid, { short: true })}${founderBadge(j.ownerUid, "employer", { short: true })}</p>
+      <p class="jrow-loc">${ICON.pin}<span>${j.area ? `${esc(j.area)}, ` : ""}${esc(j.city)}</span>${km != null ? `<span class="jrow-km">${km < 1 ? "under 1" : Math.round(km)} km away</span>` : ""}</p>
+      <ul class="jrow-tags">${tags.map((t) => `<li class="t-kind">${esc(t)}</li>`).join("")}${shown.map((b) => `<li>${esc(b)}</li>`).join("")}${more > 0 ? `<li class="t-more">+${more} more</li>` : ""}</ul>
     </div>
-    <h3>${esc(j.title)}</h3>
-    <p class="employer">${esc(j.employerName)} ${verifiedBadge(j.ownerUid, { short: true })}${founderBadge(j.ownerUid, "employer", { short: true })}</p>
-    <p class="loc">${ICON.pin}<span>${j.area ? `${esc(j.area)}, ` : ""}${esc(j.city)}${km != null ? ` · ${km < 1 ? "<1" : Math.round(km)} km` : ""}</span></p>
-    <ul class="meta"><li>${esc(j.employmentType)}</li>${j.workplace === "household" && j.schedule ? `<li>${esc(j.schedule)}</li>` : ""}${perks.map((b) => `<li class="perk">${esc(b)}</li>`).join("")}</ul>
-    <div class="card-foot"><span class="salary">${salaryText(j)}</span><span class="muted">${ago(j.approvedAt || j.createdAt)}</span></div>
+    <div class="jrow-pay"><strong>${esc(pay.amt)}</strong>${pay.per ? `<span>${pay.per}</span>` : ""}<time>${ago(when)}</time></div>
   </a>`;
 }
 

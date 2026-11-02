@@ -1351,3 +1351,134 @@ input.bad { border-color: var(--red, #c0392b); box-shadow: 0 0 0 3px rgba(192, 5
 .badge-flagged { background: #fff1e6; color: #b45309; border: 1px solid #fcd9b6; }
 .au-flag.is-flagged { border-color: #fcd9b6; background: #fffaf5; }
 .au-ban.quiet { background: var(--card); border-style: solid; }
+
+/* =====================================================================
+   Redesign (Nov 2026): a community job board, not a startup landing page.
+   One readable family (Lexend, made for easier reading), cool gray page, white
+   surfaces, brand blue for actions, green for pay, signboard yellow used
+   only for the "Hiring?" panel and "New" markers. No gradients, no glow
+   shadows, no hover lifts.
+   ===================================================================== */
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --navy: #14213d;
+  --slate: #4a5470;
+  --slate-soft: #737c95;
+  --line: #e1e4ea;
+  --line-soft: #eceef2;
+  --line-strong: #c9ced9;
+  --indigo: #2442c8;
+  --indigo-deep: #1b33a3;
+  --indigo-soft: #ebeefb;
+  --green: #0f7a43;
+  --green-soft: #e7f5ec;
+  --sign: #ffd84d;
+  --sign-ink: #3b2f00;
+  --radius: 12px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 2px rgba(20, 33, 61, .06), 0 8px 24px -12px rgba(20, 33, 61, .18);
+  --shadow-sm: 0 1px 2px rgba(20, 33, 61, .06);
+  --font: "Lexend", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --header-bg: rgba(255, 255, 255, .96);
+}
+:root[data-theme="dark"] { --sign: #f2c94c; --sign-ink: #2a2100; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sign: #f2c94c; --sign-ink: #2a2100; } }
+body { background: var(--bg); font-size: 15.5px; line-height: 1.55; letter-spacing: -.005em; }
+h1 { font-weight: 800; letter-spacing: -.025em; }
+h2, h3 { font-weight: 700; letter-spacing: -.01em; }
+/* Buttons: flat, solid, honest */
+.btn { border-radius: 10px; font-weight: 700; }
+.btn:active { transform: none; }
+.btn-primary, .btn-primary:hover { background: var(--indigo); box-shadow: none; }
+.btn-primary:hover { background: var(--indigo-deep); }
+.btn-ink { background: var(--navy); color: #fff; }
+.btn-ink:hover { background: #000; color: #fff; }
+.btn-ghost:hover { border-color: var(--navy); color: var(--navy); }
+/* Header */
+.site-header { backdrop-filter: none; }
+.brand-mark { box-shadow: none; }
+.nav a { font-weight: 500; }
+.nav a.nav-post { color: var(--navy); border: 1px solid var(--line-strong); margin-left: 6px; font-weight: 700; }
+.nav a.nav-post:hover, .nav a.nav-post.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+/* Home: heading and search sit on the page itself */
+.board-head { padding: 18px 0 8px; max-width: 760px; }
+.board-head h1 { font-size: clamp(1.9rem, 5vw, 2.9rem); line-height: 1.05; margin: 0 0 10px; }
+.board-sub { margin: 0 0 22px; color: var(--slate); font-size: 1.06rem; max-width: 60ch; text-wrap: pretty; }
+.board-head .search2 { box-shadow: var(--shadow-sm); border-color: var(--line-strong); border-radius: 12px; }
+.board-head .search2 .btn { border-radius: 8px; }
+.board-head .hero-row { margin-top: 12px; }
+.board { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; margin-top: 18px; }
+.board-main { min-width: 0; }
+.board .toolbar { margin-top: 0; padding-top: 0; }
+/* Side panels */
+.board-side { display: grid; gap: 14px; position: sticky; top: 84px; }
+.board-side section { border-radius: 12px; padding: 18px; }
+.board-side h2 { margin: 0 0 6px; font-size: 1.15rem; }
+.board-side p { margin: 0 0 12px; font-size: .94rem; color: var(--slate); }
+.side-hire { background: var(--sign); color: var(--sign-ink); }
+.side-hire h2, .side-hire p, .side-hire ol { color: var(--sign-ink); }
+.side-hire h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -.02em; }
+.side-hire ol { margin: 0 0 14px; padding-left: 20px; font-size: .92rem; display: grid; gap: 4px; }
+.side-hire .btn-block, .side-seek .btn-block { margin-top: 0; }
+.side-seek { background: var(--card); border: 1px solid var(--line); }
+.side-safe { background: transparent; border: 1px dashed var(--line-strong); }
+.side-safe h2 { font-size: 1rem; }
+.side-safe p { margin-bottom: 6px; }
+.side-safe a { font-size: .92rem; font-weight: 700; }
+/* Job list: rows with the pay big on the right */
+.cards.jlist { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.jlist > .empty { border: 0; margin: 0; }
+.jlist, #preview { container-type: inline-size; }
+.card.jrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 20px; padding: 18px 20px; border: 0; border-radius: 0; border-bottom: 1px solid var(--line-soft); background: var(--card); box-shadow: none; transform: none; text-decoration: none; color: inherit; }
+.jlist > .card.jrow:last-child { border-bottom: 0; }
+.card.jrow:hover { background: #fafbfc; transform: none; box-shadow: none; border-color: var(--line-soft); }
+.card.jrow:hover h3 { color: var(--indigo); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+.card.jrow.card-featured { background: #fffcef; }
+.jrow-main { min-width: 0; display: grid; gap: 3px; }
+.jrow-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card.jrow h3 { margin: 0; padding: 0; font-size: 1.12rem; font-weight: 700; }
+.jtag-new, .jtag-feat, .jtag-applied { font-size: .72rem; font-weight: 700; padding: 1px 7px; border-radius: 5px; }
+.jtag-new { background: var(--sign); color: var(--sign-ink); }
+.jtag-feat { background: transparent; color: #8a6a00; border: 1px solid #e8cf6a; }
+.jtag-applied { background: var(--indigo-soft); color: var(--indigo-deep); }
+.jrow-emp { margin: 0; color: var(--navy); font-size: .95rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jrow-loc { margin: 0; color: var(--slate); font-size: .9rem; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.jrow-loc svg { width: 15px; height: 15px; flex: none; color: var(--slate-soft); }
+.jrow-km { color: var(--indigo-deep); font-weight: 700; margin-left: 6px; }
+.jrow-tags { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.jrow-tags li { font-size: .78rem; padding: 2px 8px; border-radius: 5px; background: var(--line-soft); color: var(--slate); }
+.jrow-tags li.t-kind { background: var(--indigo-soft); color: var(--indigo-deep); font-weight: 700; }
+.jrow-tags li.t-more { background: transparent; padding-left: 2px; }
+.jrow-pay { text-align: right; display: grid; align-content: start; justify-items: end; gap: 0; }
+.jrow-pay strong { font-size: 1.32rem; font-weight: 800; color: var(--green); letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jrow-pay span { font-size: .85rem; color: var(--slate); }
+.jrow-pay time { font-size: .8rem; color: var(--slate-soft); margin-top: 8px; }
+@container (max-width: 520px) {
+  .card.jrow { grid-template-columns: 1fr; gap: 8px; }
+  .jrow-pay { grid-row: 2; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: 4px 6px; text-align: left; }
+  .jrow-pay strong { font-size: 1.2rem; }
+  .jrow-pay time { margin: 0 0 0 auto; }
+}
+/* Filter bar inside the list column */
+.board .toolbar { border-bottom: 0; margin-bottom: 10px; padding-bottom: 0; }
+.board .toolbar #count { font-weight: 700; color: var(--navy); }
+@media (max-width: 900px) {
+  .board { grid-template-columns: 1fr; gap: 20px; }
+  .board-side { position: static; }
+}
+@media (max-width: 640px) {
+  .board-head { padding-top: 4px; }
+  .card.jrow { padding: 16px; }
+}
+/* Dark mode surfaces for the new pieces */
+:root[data-theme="dark"] .card.jrow:hover { background: rgba(255, 255, 255, .03); }
+:root[data-theme="dark"] .card.jrow.card-featured { background: rgba(242, 201, 76, .06); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .card.jrow:hover { background: rgba(255, 255, 255, .03); } :root:not([data-theme="light"]) .card.jrow.card-featured { background: rgba(242, 201, 76, .06); } }
+.board-head .hero-stats { display: none; }
+.nav .nav-cta, .nav .nav-cta:hover { background: var(--indigo) !important; color: #fff; box-shadow: none; }
+.nav .nav-cta:hover { background: var(--indigo-deep) !important; }
+/* Chips across the site: squarer, quieter (matches the job list) */
+.meta li, .benefits li { border-radius: 6px; }
+.benefits li { font-weight: 500; }
+.badge { border-radius: 6px; }
