@@ -1542,3 +1542,7 @@ h2, h3 { font-weight: 700; letter-spacing: -.01em; }
   .ob-opt { min-height: 64px; padding: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .ob-bar span { transition: none; } }
+.ob-other { margin-top: 16px; }
+.ob-other label { display: block; font-weight: 600; font-size: .92rem; margin-bottom: 6px; color: var(--navy); }
+.ob-other .ac { position: relative; }
+.ob-other .ac-list { top: calc(100% + 4px); }

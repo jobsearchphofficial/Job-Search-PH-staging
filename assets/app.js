@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793280000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793280000";
-import { fitScore, rankApplicants } from "./match.js?v=1793280000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793280000";
-import { initPixel, track } from "./pixel.js?v=1793280000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793281000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793281000";
+import { fitScore, rankApplicants } from "./match.js?v=1793281000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793281000";
+import { initPixel, track } from "./pixel.js?v=1793281000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1406,10 +1406,16 @@ function viewSignIn() {
 /* ---------------- Profile ---------------- */
 let profileFocus = ""; // "emails" → scroll to the email settings (links in emails go to #/profile/emails)
 /* ---------------- Employer setup: one question per screen ---------------- */
+// Suggestions for the "Other" job box (plus the site's popular titles).
+const OTHER_JOBS = ["Electrician", "Plumber", "Carpenter", "Welder", "Mason", "Painter", "Aircon technician", "Mechanic", "Construction worker", "Helper",
+  "Tutor", "Massage therapist", "Barista", "Cashier", "Sales clerk", "Waiter / Waitress", "Kitchen helper", "Baker", "Dishwasher", "Bartender",
+  "Delivery rider", "Truck driver", "Tricycle driver", "Warehouse helper", "Messenger", "Encoder", "Receptionist", "Bookkeeper", "Office clerk",
+  "Security guard", "Janitor", "Utility worker", "Farm helper", "Pet sitter", "Elderly caregiver", "Nurse aide", "Hair stylist", "Manicurist",
+  "Call center agent", "Virtual assistant", "Social media assistant", "Graphic designer", "Pool cleaner", "Laundry staff", "Dressmaker / Tailor"];
 const HEARD = ["Facebook", "A friend or family", "Flyer or poster", "Google", "TikTok", "Other"];
 function viewEmployerSetup({ user, p, su, knownName }) {
   document.title = "Set up your employer account | Job Search PH";
-  const a = { kind: "", firstName: p.firstName || "", middleName: p.middleName || "", lastName: p.lastName || "", companyName: "", city: "", phone: "", needs: [], heard: "", consent: false };
+  const a = { kind: "", firstName: p.firstName || "", middleName: p.middleName || "", lastName: p.lastName || "", companyName: "", city: "", phone: "", needs: [], needsOther: "", heard: "", consent: false };
   try { Object.assign(a, JSON.parse(sessionStorage.getItem("jsph:emp-setup") || "{}")); } catch {}
   const keep = () => { try { sessionStorage.setItem("jsph:emp-setup", JSON.stringify(a)); } catch {} };
   const steps = ["kind", ...(knownName ? [] : ["name"]), "company", "city", "phone", "needs", "heard"];
@@ -1427,7 +1433,10 @@ function viewEmployerSetup({ user, p, su, knownName }) {
       body: `<input class="ob-input" name="companyName" maxlength="100" autocomplete="organization" placeholder="${a.kind === "business" ? "Business name" : "e.g. Reyes Family"}" value="${esc(a.companyName)}">`, ok: () => a.companyName.trim().length >= 2 }),
     city: () => ({ q: "Where are you?", hint: "Jobseekers look for work near them.", body: cityPicker("city", a.city), ok: () => !!a.city }),
     phone: () => ({ q: "What's your mobile number?", hint: "Only applicants you choose and our team can see it. We never post it publicly.", body: `<input class="ob-input" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="0917 123 4567" value="${esc(a.phone)}">`, ok: () => !!normPhone(a.phone) }),
-    needs: () => ({ q: "What kind of help do you need?", hint: "Pick any. We'll use it to start your first job post.", body: `<div class="ob-grid ob-grid-3">${needList().map((c) => choice("needs", c, c, { multi: true, on: a.needs.includes(c) })).join("")}</div>`, ok: () => a.needs.length > 0, skip: "Not sure yet" }),
+    needs: () => ({ q: "What role are you hiring for?", hint: "Pick all that apply. Your first pick starts your first job post.", body: `<div class="ob-grid ob-grid-3">${needList().map((c) => choice("needs", c, c, { multi: true, on: a.needs.includes(c) })).join("")}${choice("needs", "Other", "Other", { multi: true, on: a.needs.includes("Other") })}</div>
+      <div class="ob-other" id="ob-other" ${a.needs.includes("Other") ? "" : "hidden"}><label for="ob-other-in">What role?</label>
+        <div class="ac"><input class="ob-input" id="ob-other-in" name="needsOther" maxlength="40" autocomplete="off" placeholder="Start typing, e.g. Electrician" value="${esc(a.needsOther)}" role="combobox" aria-expanded="false" aria-controls="ob-other-list" aria-autocomplete="list"><ul class="ac-list" id="ob-other-list" role="listbox" hidden></ul></div></div>`,
+      ok: () => a.needs.length > 0 && (!a.needs.includes("Other") || a.needsOther.trim().length >= 2), skip: "Not sure yet" }),
     heard: () => ({ q: "How did you hear about us?", hint: "Optional. It helps us reach more employers like you.", body: `<div class="ob-grid ob-grid-3">${HEARD.map((h) => choice("heard", h, h, { on: a.heard === h })).join("")}</div>
       <label class="check ob-consent"><input type="checkbox" name="consent" ${a.consent ? "checked" : ""}><span>I agree to only post real jobs and to use applicants' details only for hiring. I accept the <a href="#/terms" target="_blank">Terms</a> and <a href="#/privacy" target="_blank">Privacy notice</a>.</span></label>`,
       ok: () => a.consent, last: true }),
@@ -1456,13 +1465,27 @@ function viewEmployerSetup({ user, p, su, knownName }) {
       if (key === "company") a.companyName = fd.get("companyName") || "";
       if (key === "city") a.city = fd.get("city") || "";
       if (key === "phone") a.phone = fd.get("phone") || "";
-      if (key === "needs") a.needs = fd.getAll("needs");
+      if (key === "needs") {
+        a.needs = fd.getAll("needs"); a.needsOther = fd.get("needsOther") || "";
+        const box = $("#ob-other"), was = box.hidden; box.hidden = !a.needs.includes("Other");
+        if (was && !box.hidden) setTimeout(() => $("#ob-other-in").focus(), 30);
+      }
       if (key === "heard") { a.heard = fd.get("heard") || ""; a.consent = !!fd.get("consent"); }
       f.querySelectorAll(".ob-opt").forEach((o) => o.classList.toggle("on", o.querySelector("input").checked));
       next.disabled = !screens[key]().ok(); keep();
     };
     f.addEventListener("input", sync); f.addEventListener("change", sync);
     bindPickers(f);
+    if (key === "needs") {
+      const inp = $("#ob-other-in");
+      autocomplete(inp, $("#ob-other-list"), (term) => {
+        const t = term.trim().toLowerCase(); if (!t) return [];
+        const all = [...new Set([...OTHER_JOBS, ...POPULAR_TITLES])];
+        const starts = (x) => x.toLowerCase().split(/[\s/-]+/).some((w) => w.startsWith(t));
+        return all.filter((x) => x.toLowerCase().startsWith(t) || starts(x)).sort((x, y) => (y.toLowerCase().startsWith(t) - x.toLowerCase().startsWith(t)) || x.localeCompare(y)).slice(0, 6)
+          .map((x) => ({ value: x, html: hl(x, t) }));
+      }, () => sync());
+    }
     // Single-choice screens move on by themselves once picked (Back still works).
     if (key === "kind") f.querySelectorAll("[name=kind]").forEach((r) => r.addEventListener("change", () => setTimeout(() => { i++; draw(); }, 180)));
     $("#ob-back")?.addEventListener("click", () => { i--; draw(); });
@@ -1478,7 +1501,8 @@ function viewEmployerSetup({ user, p, su, knownName }) {
       const data = {
         role: "employer", fullName: joinName(names.firstName, names.middleName, names.lastName), ...names,
         phone: a.phone.trim(), city: a.city, messenger: "", photo: p.photo || "", alerts: false, emailNotify: true,
-        companyName: a.companyName.trim(), fbUrl: "", bizReg: "", employerKind: a.kind, needs: a.needs.slice(0, 12), heardFrom: a.heard,
+        companyName: a.companyName.trim(), fbUrl: "", bizReg: "", employerKind: a.kind, heardFrom: a.heard,
+        needs: [...a.needs.filter((n) => n !== "Other"), ...(a.needs.includes("Other") && a.needsOther.trim() ? [tidyName(a.needsOther.trim()).slice(0, 40)] : [])].slice(0, 12),
       };
       try {
         await store.saveProfile(data);
@@ -2353,7 +2377,11 @@ async function viewPost(editId = null) {
     const wpIn = f.querySelector(`[name=workplace][value="${profile.employerKind}"]`);
     if (wpIn) { wpIn.checked = true; wpIn.dispatchEvent(new Event("change", { bubbles: true })); renderOptions(); }
     const need = (profile.needs || [])[0];
-    const catIn = need && f.querySelector(`[name=category][value="${CSS.escape(need)}"]`);
+    let catIn = need && f.querySelector(`[name=category][value="${CSS.escape(need)}"]`);
+    if (!catIn && need) { // their own job name from "Other"
+      catIn = f.querySelector('[name=category][value="Other"]');
+      if (catIn && f.categoryOther) f.categoryOther.value = need;
+    }
     if (catIn) { catIn.checked = true; catIn.dispatchEvent(new Event("change", { bubbles: true })); }
   }
   if (!editJob) autosave("post", f);
