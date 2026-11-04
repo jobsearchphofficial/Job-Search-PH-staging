@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793281000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793281000";
-import { fitScore, rankApplicants } from "./match.js?v=1793281000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793281000";
-import { initPixel, track } from "./pixel.js?v=1793281000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793282000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793282000";
+import { fitScore, rankApplicants } from "./match.js?v=1793282000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793282000";
+import { initPixel, track } from "./pixel.js?v=1793282000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1486,8 +1486,6 @@ function viewEmployerSetup({ user, p, su, knownName }) {
           .map((x) => ({ value: x, html: hl(x, t) }));
       }, () => sync());
     }
-    // Single-choice screens move on by themselves once picked (Back still works).
-    if (key === "kind") f.querySelectorAll("[name=kind]").forEach((r) => r.addEventListener("change", () => setTimeout(() => { i++; draw(); }, 180)));
     $("#ob-back")?.addEventListener("click", () => { i--; draw(); });
     $("#ob-skip")?.addEventListener("click", () => { a.needs = []; keep(); i++; draw(); });
     $("#ob-seeker")?.addEventListener("click", () => { signupIntent = "jobseeker"; if (su) saveSignupInfo({ ...su, role: "jobseeker" }); try { sessionStorage.removeItem("jsph:emp-setup"); } catch {} viewProfile(); });
