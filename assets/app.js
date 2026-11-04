@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793283000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793283000";
-import { fitScore, rankApplicants } from "./match.js?v=1793283000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793283000";
-import { initPixel, track } from "./pixel.js?v=1793283000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793778034";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793778034";
+import { fitScore, rankApplicants } from "./match.js?v=1793778034";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793778034";
+import { initPixel, track } from "./pixel.js?v=1793778034";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1321,8 +1321,6 @@ function viewSignIn() {
           </button>` : ""}
           <div class="divider"><span>or use email</span></div>
           <form id="email-form" class="auth-form" novalidate>
-            ${up ? nameFields(su, { labels: false }) : ""}
-            ${up && seeker ? `<label for="s-birth">Birthdate</label><span class="date-age"><input id="s-birth" name="birthDate" type="date" max="${maxBirthDate()}" value="${esc(su.birthDate)}"><output id="su-age" class="age-pill ${a != null && a < 18 ? "bad" : ""}">${a != null ? `${a} years old` : "Age"}</output></span><p class="hint">You must be at least 18. Employers see your age, not your birthdate.</p>` : ""}
             <label for="s-email">Email</label><input id="s-email" name="email" type="email" autocomplete="email" required value="${esc(su.email)}">
             <label for="s-pw">Password</label><input id="s-pw" name="pw" type="password" autocomplete="${up ? "new-password" : "current-password"}" required minlength="6">
             ${up ? `<p class="hint">At least 6 characters.</p>
@@ -1376,14 +1374,6 @@ function viewSignIn() {
       const email = f.email.value.trim(), pw = f.pw.value;
       if (up) {
         if (!su.role) return bad("Choose \u201cI'm looking for work\u201d or \u201cI'm hiring\u201d at the top.");
-        const ne = nameError(su.firstName, su.middleName, su.lastName);
-        if (ne) return bad(ne, hasName(su.firstName) ? f.lastName : f.firstName);
-        if (su.role === "jobseeker") {
-          const n = ageFrom(su.birthDate);
-          if (!su.birthDate || n === null) return bad("Enter your birthdate.", f.birthDate);
-          if (n < 18) return bad("You must be at least 18 years old to use Job Search PH as a jobseeker.", f.birthDate);
-          if (n > 90) return bad("Check your birthdate.", f.birthDate);
-        }
       }
       if (!email) return bad("Enter your email.", f.email);
       if (pw.length < 6) return bad("Use a password with at least 6 characters.", f.pw);
@@ -1391,11 +1381,10 @@ function viewSignIn() {
       btn.disabled = true;
       try {
         if (up) {
-          const parts = { firstName: tidyName(su.firstName), middleName: tidyName(su.middleName), lastName: tidyName(su.lastName) };
-          pendingName = joinName(parts.firstName, parts.middleName, parts.lastName);
-          signupIntent = su.role;
-          saveSignupInfo({ email: email.toLowerCase(), role: su.role, ...parts, birthDate: su.role === "jobseeker" ? su.birthDate : "" });
-          await store.signUpEmail(email, pw, pendingName);
+          // Short sign-up: name (and a jobseeker's birthdate) are asked in the setup that follows.
+          pendingName = ""; signupIntent = su.role;
+          saveSignupInfo({ email: email.toLowerCase(), role: su.role, firstName: "", middleName: "", lastName: "", birthDate: "" });
+          await store.signUpEmail(email, pw, "");
         } else await store.signInEmail(email, pw);
       } catch (ex) { err(authError(ex)); btn.disabled = false; }
     });
@@ -1538,7 +1527,7 @@ function viewProfile(focus) {
   const isNew = !profile;
   const su = isNew ? signupInfo(user.email) : null; // what they typed on "Create account"
   if (!p.fullName) p.fullName = pendingName || user.displayName || "";
-  if (su) { Object.assign(p, { firstName: su.firstName, middleName: su.middleName, lastName: su.lastName }); if (su.birthDate && !p.birthDate) p.birthDate = su.birthDate; }
+  if (su?.firstName) { Object.assign(p, { firstName: su.firstName, middleName: su.middleName, lastName: su.lastName }); if (su.birthDate && !p.birthDate) p.birthDate = su.birthDate; }
   if (!p.firstName && !p.lastName) Object.assign(p, splitName(p.fullName));
   let role = p.role || (isNew ? signupIntent || su?.role : "") || "";
   if (isNew && !role) { try { const k = draftKey("role"); role = (k && localStorage.getItem(k)) || ""; } catch {} }
@@ -1555,7 +1544,7 @@ function viewProfile(focus) {
     <form id="profile-form" class="form" novalidate>
       <fieldset>
         <legend>About you</legend>
-        ${knownName ? `<div class="known-row" id="known-row"><div><span class="label">${su ? "From sign-up" : "Your name"}</span>
+        ${knownName ? `<div class="known-row" id="known-row"><div><span class="label">${su?.firstName ? "From sign-up" : "Your name"}</span>
             <span><strong>${esc(joinName(p.firstName, p.middleName, p.lastName))}</strong>${role === "jobseeker" && knownBirth ? `<span class="muted"> · ${ageFrom(p.birthDate)} years old</span>` : ""}</span>
             <span class="hint">You can change ${role === "jobseeker" && knownBirth ? "these" : "this"} anytime in your profile.</span></div>
           <button type="button" class="btn btn-ghost btn-sm" id="known-edit">Edit</button></div>` : ""}
