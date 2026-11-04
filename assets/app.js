@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793797512";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793797512";
-import { fitScore, rankApplicants } from "./match.js?v=1793797512";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793797512";
-import { initPixel, track } from "./pixel.js?v=1793797512";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793816860";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793816860";
+import { fitScore, rankApplicants } from "./match.js?v=1793816860";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793816860";
+import { initPixel, track } from "./pixel.js?v=1793816860";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -247,6 +247,20 @@ function payWarning(d) {
     return { msg: `${shown} per ${per} is much higher than usual for ${d.workplace === "household" ? "household work" : "this kind of job"} in Negros Occidental.${guess}`, field: hi > ceil ? "salaryMax" : "salaryMin" };
   }
   return null;
+}
+
+/* ---------------- Low pay: a friendly suggestion, with a hard stop at very low pay ---------------- */
+// Below the legal minimum is only a suggestion (admins still see a risk flag). Pay of ₱300 a day or less
+// can't be posted. Monthly and hourly pay are converted to a day's pay first, so the rule can't be dodged.
+const PAY_BLOCK_DAILY = 300;
+function payFloor(d) {
+  const per = d.salaryPeriod || "month", pay = Number(d.salaryMin) || 0;
+  const min = d.city && d.workplace ? minimumPay(d.city, d.workplace, per) : null;
+  if (!min || !pay || pay >= min.amount) return null;
+  const perDay = per === "month" ? pay / WORK_DAYS : per === "day" ? pay : pay * 8;
+  const minText = `₱${min.amount.toLocaleString("en-PH")} per ${per}`;
+  const dayNote = per === "day" ? "" : ` ₱${pay.toLocaleString("en-PH")} per ${per} is about ₱${Math.round(perDay).toLocaleString("en-PH")} a day.`;
+  return { min, minText, blocked: perDay <= PAY_BLOCK_DAILY, blockMsg: `Jobs paying ₱${PAY_BLOCK_DAILY} a day or less can't be posted.${dayNote} The legal minimum for this job is ${minText}.` };
 }
 
 /* ---------------- Drafts: keep unsaved form input across refreshes ---------------- */
@@ -2255,7 +2269,6 @@ async function viewPost(editId = null) {
       requirements: g("requirements"), description: g("description"),
     };
   };
-  const currentMin = () => (f.city.value && workplace() ? minimumPay(f.city.value, workplace(), val("salaryPeriod") || "month") : null);
   const counter = document.createElement("p"); counter.className = "hint"; f.description.after(counter);
   const ph = { messenger: "Messenger username or m.me link", phone: "e.g. 0917 123 4567", email: "you@example.com" };
 
@@ -2280,15 +2293,17 @@ async function viewPost(editId = null) {
       tag.textContent = len < 8 ? "Short day" : len === 8 ? "Recommended" : len === 9 ? "Long day" : "Discouraged: 10 hrs is the max"; }
     const n = f.description.value.trim().length; counter.textContent = n < 30 ? `${n}/30 characters minimum` : `${n} characters`;
     f.querySelectorAll(".crow").forEach((r) => { r.querySelector("[name=cValue]").placeholder = ph[r.querySelector("[name=cMethod]").value] || ""; });
-    const box = $("#wage-box"); const min = currentMin(); const pay = Number(f.salaryMin.value) || 0; const per = val("salaryPeriod") || "month";
-    // Only speak up when the pay looks like a typo. (Pay below the legal minimum is flagged for the admin instead.)
-    const low = false;
+    const box = $("#wage-box"); const pay = Number(f.salaryMin.value) || 0; const per = val("salaryPeriod") || "month";
+    // Very low pay can't be posted; low pay gets a suggestion; pay that looks like a typo gets a double-check. (Admins see a flag for anything below the minimum.)
+    const floor = payFloor({ city: f.city.value.trim(), workplace: workplace(), salaryPeriod: per, salaryMin: pay });
     const pw = pay ? payWarning({ workplace: workplace(), salaryPeriod: per, salaryMin: f.salaryMin.value, salaryMax: per === "month" ? f.salaryMax.value : "" }) : null;
-    box.hidden = !low && !pw;
-    box.className = `wage-box ${low ? "low" : pw ? "odd" : ""}`;
-    box.innerHTML = low
-      ? `<strong>Below the legal minimum</strong><span class="small">The minimum for this job in ${esc(min.region)} is ₱${min.amount.toLocaleString("en-PH")} per ${per}. Please raise the pay.</span>`
-      : pw ? `<span class="verdict odd">⚠ Please double-check: ${esc(pw.msg)}</span>` : "";
+    box.hidden = !floor && !pw;
+    box.className = `wage-box ${floor?.blocked ? "low" : pw ? "odd" : ""}`;
+    box.innerHTML = [
+      floor?.blocked ? `<strong>This pay is too low to post</strong><span class="small">${esc(floor.blockMsg)}</span>` : "",
+      floor && !floor.blocked ? `<strong>Suggestion: make it ${esc(floor.minText)}</strong><span class="small">That's the legal minimum for this job in ${esc(floor.min.region)}. You can still post at this pay.</span>` : "",
+      pw ? `<span class="verdict odd">⚠ Please double-check: ${esc(pw.msg)}</span>` : "",
+    ].join("");
     const d = collect();
     $("#preview").innerHTML = card({ ...d, id: "preview", title: d.title || "Job title", employerName: d.employerName || "Employer name", city: d.city || "City", category: d.category || "Category", approvedAt: Date.now() }, false, null).replace(/href="[^"]*"/, 'href="#/post" tabindex="-1" aria-hidden="true"');
   };
@@ -2404,6 +2419,7 @@ async function viewPost(editId = null) {
     f.city.value = okCity;
     const data = collect();
     if (data.salaryMax && data.salaryMax < data.salaryMin) return fail("The 'To' amount should be higher than 'From'.", f.salaryMax);
+    { const floor = payFloor({ ...data, workplace: workplace() }); if (floor?.blocked) return fail(floor.blockMsg, f.salaryMin); }
     if (!(data.daysOff >= 2)) return fail("The minimum is 2 days off per month.", f.daysOff);
     const rows = [...f.querySelectorAll(".crow")].map((r) => ({ el: r.querySelector("[name=cValue]"), contactMethod: r.querySelector("[name=cMethod]").value, contactValue: r.querySelector("[name=cValue]").value.trim() })).filter((c) => c.contactValue);
     if (!rows.length) return fail("Add at least one way for the person you hire to reach you.", $("#add-contact"));
