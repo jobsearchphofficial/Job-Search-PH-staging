@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793282000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793282000";
-import { fitScore, rankApplicants } from "./match.js?v=1793282000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793282000";
-import { initPixel, track } from "./pixel.js?v=1793282000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793283000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793283000";
+import { fitScore, rankApplicants } from "./match.js?v=1793283000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793283000";
+import { initPixel, track } from "./pixel.js?v=1793283000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1412,6 +1412,7 @@ const OTHER_JOBS = ["Electrician", "Plumber", "Carpenter", "Welder", "Mason", "P
   "Delivery rider", "Truck driver", "Tricycle driver", "Warehouse helper", "Messenger", "Encoder", "Receptionist", "Bookkeeper", "Office clerk",
   "Security guard", "Janitor", "Utility worker", "Farm helper", "Pet sitter", "Elderly caregiver", "Nurse aide", "Hair stylist", "Manicurist",
   "Call center agent", "Virtual assistant", "Social media assistant", "Graphic designer", "Pool cleaner", "Laundry staff", "Dressmaker / Tailor"];
+let holdRoute = false;
 const HEARD = ["Facebook", "A friend or family", "Flyer or poster", "Google", "TikTok", "Other"];
 function viewEmployerSetup({ user, p, su, knownName }) {
   document.title = "Set up your employer account | Job Search PH";
@@ -1502,6 +1503,7 @@ function viewEmployerSetup({ user, p, su, knownName }) {
         companyName: a.companyName.trim(), fbUrl: "", bizReg: "", employerKind: a.kind, heardFrom: a.heard,
         needs: [...a.needs.filter((n) => n !== "Other"), ...(a.needs.includes("Other") && a.needsOther.trim() ? [tidyName(a.needsOther.trim()).slice(0, 40)] : [])].slice(0, 12),
       };
+      holdRoute = true; // saving updates the account, which would otherwise redraw this page as "My profile" for a moment
       try {
         await store.saveProfile(data);
         track("CompleteRegistration", { content_name: "employer" });
@@ -1516,7 +1518,9 @@ function viewEmployerSetup({ user, p, su, knownName }) {
           <a class="btn btn-primary btn-block" href="#/post">Post a job</a>
           <a class="btn btn-ghost btn-block" href="#/">Later</a>
         </div></div>`;
+        holdRoute = false; renderNav();
       } catch (ex) {
+        holdRoute = false;
         console.error(ex); next.disabled = false; next.textContent = "Finish setup";
         err.textContent = `Couldn't save (${ex.code || ex.message}). Try again.`; err.hidden = false;
       }
@@ -4040,6 +4044,7 @@ onAuth(async (s) => {
   if (changed) { myAppsCache = null; startNotifications(); }
   startInbox();
   if (changed && uidNow && location.hash === "#/signin") return finishAuthFlow();
+  if (holdRoute) return; // a screen is saving and will draw what comes next itself
   route();
 });
 // Test site: loud banner, and keep it out of Google.
