@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793778034";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793797512";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -105,7 +105,7 @@ async function recordVisit() {
 export const visitSource = () => { try { const c = JSON.parse(localStorage.getItem("jsph-src") || "null"); return c && Date.now() - c.at < 60 * 86400000 ? c.src : ""; } catch { return ""; } };
 
 // applies, messages, reports, support: per day. posts: per calendar month (Pro may raise this later; also update the 5 in firestore.rules mcnt).
-export const LIMITS = { applies: 10, posts: 5, messages: 200, reports: 5, support: 3 };
+export const LIMITS = { applies: 3, posts: 5, messages: 200, reports: 5, support: 3 };
 const phDay = () => Math.floor((Date.now() + 8 * 3600000) / 86400000);
 // Philippine calendar month as one number (year * 12 + month 1–12). Job posts are limited per month.
 const phMonth = () => { const d = new Date(Date.now() + 8 * 3600000); return d.getUTCFullYear() * 12 + d.getUTCMonth() + 1; };

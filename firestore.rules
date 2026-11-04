@@ -379,7 +379,7 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly(['day', 'month', 'applies', 'posts', 'messages', 'reports', 'support', 'postsM', 'msgAt'])
                     && request.resource.data.day == today()
                     && request.resource.data.get('month', thisMonth()) == thisMonth()
-                    && cnt('applies', 10) && cnt('posts', 5) && mcnt('postsM', 5) && cnt('messages', 200) && cnt('reports', 5) && cnt('support', 3)
+                    && cnt('applies', 3) && cnt('posts', 5) && mcnt('postsM', 5) && cnt('messages', 200) && cnt('reports', 5) && cnt('support', 3)
                     && (request.resource.data.get('msgAt', null) == (resource == null ? null : resource.data.get('msgAt', null))
                         || request.resource.data.msgAt == request.time);
     }

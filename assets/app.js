@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793778034";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793778034";
-import { fitScore, rankApplicants } from "./match.js?v=1793778034";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793778034";
-import { initPixel, track } from "./pixel.js?v=1793778034";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793797512";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793797512";
+import { fitScore, rankApplicants } from "./match.js?v=1793797512";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793797512";
+import { initPixel, track } from "./pixel.js?v=1793797512";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -3904,7 +3904,7 @@ function viewStatic(page) {
         ${faq("How do I know a job is real?", "Every post is reviewed by our team before it goes live. Still, trust your instincts: if an employer asks for money, pushes you to leave the site quickly, or the details keep changing, stop and report the post.")}
         ${faq("Why can't I see the employer's phone number?", "To protect both sides from spam and scams, you talk to employers through Messages here on Job Search PH. The employer's own contact is shared with you once you accept their job offer.")}
         ${faq("Someone asked me for money. What do I do?", "Don't pay. Tap <strong>Report this post</strong> on the job, or contact support with the details. We'll review it and may remove the post or restrict the account.")}
-        ${faq("How many jobs can I apply to?", "Up to 10 a day. Employers can post up to 5 jobs a month. These limits stop spam and keep the site fair.")}
+        ${faq("How many jobs can I apply to?", "Up to 3 a day, so each application gets real attention. Employers can post up to 5 jobs a month. These limits stop spam and keep the site fair.")}
         ${faq("Why did my chat close?", "If an employer chooses other applicants, the chat stays open for 48 hours so you can say goodbye or ask questions, then it closes. You can still read old messages.")}
         ${faq("How does hiring work?", "When an employer picks you, they send a <strong>job offer</strong>. You'll get a notification and can <strong>Accept</strong> or <strong>Decline</strong> it from the job page, My applications, or the chat. You're only marked as hired once you accept. If you decline, the employer is told and the chat closes after 48 hours.")}
         ${faq("How do I leave a job I got here?", "Go to <strong>My applications</strong> and tap <strong>Leave this job</strong>. Your employer confirms, and then you can apply to full-time jobs again. Employers can also start this from the applicant card.")}

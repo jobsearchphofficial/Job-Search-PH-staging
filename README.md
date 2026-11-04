@@ -37,7 +37,7 @@ All security (who can read what, daily and monthly limits, bans, chat closing) l
 
 | What | Limit |
 |---|---|
-| Applications | 10 per day |
+| Applications | 3 per day |
 | Job posts | 5 per calendar month (Philippine time) |
 | Chat messages | 200 per day |
 | Reports | 5 per day |
