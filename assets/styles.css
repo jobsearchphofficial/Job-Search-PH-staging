@@ -1494,3 +1494,51 @@ h2, h3 { font-weight: 700; letter-spacing: -.01em; }
 .card.jrow.card-featured { background: #f7f9ff; }
 :root[data-theme="dark"] .side-hire { background: #1d2a52; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .side-hire { background: #1d2a52; } }
+
+/* ---------- Employer setup: one question per screen ---------- */
+.ob { max-width: 620px; margin: 0 auto; padding: 8px 0 48px; }
+.ob-bar { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 4px 0 14px; }
+.ob-bar span { display: block; height: 100%; background: var(--indigo); border-radius: 4px; transition: width .25s ease; }
+.ob-top { display: flex; justify-content: space-between; align-items: center; min-height: 34px; margin-bottom: 18px; }
+.ob-back { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 6px 2px; font: inherit; font-weight: 600; color: var(--navy); cursor: pointer; }
+.ob-back:hover { color: var(--indigo); }
+.ob-step { font-size: .85rem; color: var(--slate-soft); }
+.ob-card h1 { font-size: clamp(1.6rem, 4.6vw, 2.1rem); line-height: 1.15; margin: 0 0 8px; }
+.ob-hint { color: var(--slate); margin: 0 0 24px; }
+.ob-body { margin-bottom: 22px; }
+.ob-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ob-grid-3 { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.ob-opt { position: relative; display: flex; align-items: center; gap: 14px; min-height: 76px; padding: 16px 18px; background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; cursor: pointer; transition: border-color .12s, background .12s; }
+.ob-opt:hover { border-color: var(--line-strong); }
+.ob-opt input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.ob-opt.on { border-color: var(--indigo); background: var(--indigo-soft); }
+.ob-opt:has(input:focus-visible) { outline: 3px solid rgba(36, 66, 200, .3); outline-offset: 2px; }
+.ob-ico { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--bg); color: var(--navy); }
+.ob-ico svg { width: 22px; height: 22px; }
+.ob-opt.on .ob-ico { background: #fff; color: var(--indigo); }
+.ob-txt { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.ob-txt strong { font-size: 1rem; color: var(--navy); }
+.ob-txt small { font-size: .82rem; color: var(--slate); line-height: 1.35; }
+.ob-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--line-strong); background: var(--card); }
+.ob-opt input[type="checkbox"] ~ .ob-mark { border-radius: 6px; }
+.ob-opt.on .ob-mark { border-color: var(--indigo); background: var(--indigo); box-shadow: inset 0 0 0 4px var(--card); }
+.ob-opt.on input[type="checkbox"] ~ .ob-mark { box-shadow: none; background: var(--indigo) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 5 5 9-10'/%3E%3C/svg%3E") center / 14px no-repeat; }
+.ob-input { width: 100%; font: inherit; font-size: 1.1rem; padding: 14px 16px; border: 1.5px solid var(--line-strong); border-radius: 12px; background: var(--card); color: var(--navy); }
+.ob-input:focus { outline: none; border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(36, 66, 200, .14); }
+.ob .picker-btn { min-height: 54px; font-size: 1.05rem; border-width: 1.5px; border-color: var(--line-strong); }
+.ob .name-row label { font-weight: 600; font-size: .9rem; }
+.ob-next { min-height: 52px; font-size: 1rem; }
+.ob-next:disabled { background: var(--line-strong); color: #fff; cursor: not-allowed; opacity: 1; }
+.ob-skip { display: block; margin: 14px auto 0; }
+.ob-switch { text-align: center; margin: 22px 0 0; font-size: .9rem; color: var(--slate); }
+.ob-consent { margin-top: 18px; font-size: .9rem; }
+.ob-done { text-align: center; padding-top: 24px; }
+.ob-done .btn-block + .btn-block { margin-top: 10px; }
+.ob-done-ico { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--green-soft); color: var(--green); margin-bottom: 14px; }
+.ob-done-ico svg { width: 30px; height: 30px; }
+@media (max-width: 560px) {
+  .ob-grid { grid-template-columns: 1fr; }
+  .ob-grid-3 { grid-template-columns: 1fr 1fr; }
+  .ob-opt { min-height: 64px; padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .ob-bar span { transition: none; } }

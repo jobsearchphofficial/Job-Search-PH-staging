@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793279000";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793279000";
-import { fitScore, rankApplicants } from "./match.js?v=1793279000";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793279000";
-import { initPixel, track } from "./pixel.js?v=1793279000";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793280000";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793280000";
+import { fitScore, rankApplicants } from "./match.js?v=1793280000";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793280000";
+import { initPixel, track } from "./pixel.js?v=1793280000";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1405,6 +1405,104 @@ function viewSignIn() {
 
 /* ---------------- Profile ---------------- */
 let profileFocus = ""; // "emails" → scroll to the email settings (links in emails go to #/profile/emails)
+/* ---------------- Employer setup: one question per screen ---------------- */
+const HEARD = ["Facebook", "A friend or family", "Flyer or poster", "Google", "TikTok", "Other"];
+function viewEmployerSetup({ user, p, su, knownName }) {
+  document.title = "Set up your employer account | Job Search PH";
+  const a = { kind: "", firstName: p.firstName || "", middleName: p.middleName || "", lastName: p.lastName || "", companyName: "", city: "", phone: "", needs: [], heard: "", consent: false };
+  try { Object.assign(a, JSON.parse(sessionStorage.getItem("jsph:emp-setup") || "{}")); } catch {}
+  const keep = () => { try { sessionStorage.setItem("jsph:emp-setup", JSON.stringify(a)); } catch {} };
+  const steps = ["kind", ...(knownName ? [] : ["name"]), "company", "city", "phone", "needs", "heard"];
+  let i = 0;
+  const choice = (name, v, label, { icon = "", multi = false, on = false, sub = "" } = {}) => `
+    <label class="ob-opt ${on ? "on" : ""}"><input type="${multi ? "checkbox" : "radio"}" name="${name}" value="${esc(v)}" ${on ? "checked" : ""}>
+      ${icon ? `<span class="ob-ico">${icon}</span>` : ""}<span class="ob-txt"><strong>${esc(label)}</strong>${sub ? `<small>${esc(sub)}</small>` : ""}</span><span class="ob-mark" aria-hidden="true"></span></label>`;
+  const needList = () => (a.kind === "business" ? CATEGORIES.filter((c) => !HOUSEHOLD_ONLY.includes(c) && c !== "Other") : HOUSEHOLD_CATS);
+  const screens = {
+    kind: () => ({ q: "Who's hiring?", hint: "This sets the right job options and pay rules.", body: `<div class="ob-grid">
+      ${choice("kind", "household", "A household", { icon: ICON.home, sub: "Kasambahay, yaya, family driver, cook…", on: a.kind === "household" })}
+      ${choice("kind", "business", "A business", { icon: ICON.people, sub: "Store, restaurant, office, site…", on: a.kind === "business" })}</div>`, ok: () => !!a.kind }),
+    name: () => ({ q: "What's your name?", hint: "Applicants see this when you message them.", body: nameFields(a), ok: () => !nameError(a.firstName, a.middleName, a.lastName) }),
+    company: () => ({ q: a.kind === "business" ? "What's the business called?" : "What should we call your household?", hint: a.kind === "business" ? "As your customers know it, for example Inasal Express." : "For example Reyes Family. It shows on your job posts.",
+      body: `<input class="ob-input" name="companyName" maxlength="100" autocomplete="organization" placeholder="${a.kind === "business" ? "Business name" : "e.g. Reyes Family"}" value="${esc(a.companyName)}">`, ok: () => a.companyName.trim().length >= 2 }),
+    city: () => ({ q: "Where are you?", hint: "Jobseekers look for work near them.", body: cityPicker("city", a.city), ok: () => !!a.city }),
+    phone: () => ({ q: "What's your mobile number?", hint: "Only applicants you choose and our team can see it. We never post it publicly.", body: `<input class="ob-input" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="0917 123 4567" value="${esc(a.phone)}">`, ok: () => !!normPhone(a.phone) }),
+    needs: () => ({ q: "What kind of help do you need?", hint: "Pick any. We'll use it to start your first job post.", body: `<div class="ob-grid ob-grid-3">${needList().map((c) => choice("needs", c, c, { multi: true, on: a.needs.includes(c) })).join("")}</div>`, ok: () => a.needs.length > 0, skip: "Not sure yet" }),
+    heard: () => ({ q: "How did you hear about us?", hint: "Optional. It helps us reach more employers like you.", body: `<div class="ob-grid ob-grid-3">${HEARD.map((h) => choice("heard", h, h, { on: a.heard === h })).join("")}</div>
+      <label class="check ob-consent"><input type="checkbox" name="consent" ${a.consent ? "checked" : ""}><span>I agree to only post real jobs and to use applicants' details only for hiring. I accept the <a href="#/terms" target="_blank">Terms</a> and <a href="#/privacy" target="_blank">Privacy notice</a>.</span></label>`,
+      ok: () => a.consent, last: true }),
+  };
+  const draw = () => {
+    const key = steps[i], sc = screens[key]();
+    app.innerHTML = `
+      <div class="ob">
+        <div class="ob-bar" role="progressbar" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="${i + 1}" aria-label="Step ${i + 1} of ${steps.length}"><span style="width:${((i + 1) / steps.length) * 100}%"></span></div>
+        <div class="ob-top">${i > 0 ? `<button type="button" class="ob-back" id="ob-back" aria-label="Back"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg><span>Back</span></button>` : `<span></span>`}<span class="ob-step">${i + 1} of ${steps.length}</span></div>
+        <form class="ob-card" id="ob-form" novalidate>
+          <h1>${sc.q}</h1>
+          <p class="ob-hint">${sc.hint}</p>
+          <div class="ob-body">${sc.body}</div>
+          <p class="error" id="ob-err" hidden></p>
+          <button class="btn btn-primary btn-block ob-next" type="submit" ${sc.ok() ? "" : "disabled"}>${sc.last ? "Finish setup" : "Continue"}</button>
+          ${sc.skip ? `<button type="button" class="linkbtn ob-skip" id="ob-skip">${sc.skip}</button>` : ""}
+          ${i === 0 ? `<p class="ob-switch">Looking for work instead? <button type="button" class="linkbtn" id="ob-seeker">Set up a jobseeker profile</button></p>` : ""}
+        </form>
+      </div>`;
+    const f = $("#ob-form"), next = f.querySelector(".ob-next");
+    const sync = () => {
+      const fd = new FormData(f);
+      if (key === "kind") a.kind = fd.get("kind") || "";
+      if (key === "name") { a.firstName = fd.get("firstName") || ""; a.middleName = fd.get("middleName") || ""; a.lastName = fd.get("lastName") || ""; }
+      if (key === "company") a.companyName = fd.get("companyName") || "";
+      if (key === "city") a.city = fd.get("city") || "";
+      if (key === "phone") a.phone = fd.get("phone") || "";
+      if (key === "needs") a.needs = fd.getAll("needs");
+      if (key === "heard") { a.heard = fd.get("heard") || ""; a.consent = !!fd.get("consent"); }
+      f.querySelectorAll(".ob-opt").forEach((o) => o.classList.toggle("on", o.querySelector("input").checked));
+      next.disabled = !screens[key]().ok(); keep();
+    };
+    f.addEventListener("input", sync); f.addEventListener("change", sync);
+    bindPickers(f);
+    // Single-choice screens move on by themselves once picked (Back still works).
+    if (key === "kind") f.querySelectorAll("[name=kind]").forEach((r) => r.addEventListener("change", () => setTimeout(() => { i++; draw(); }, 180)));
+    $("#ob-back")?.addEventListener("click", () => { i--; draw(); });
+    $("#ob-skip")?.addEventListener("click", () => { a.needs = []; keep(); i++; draw(); });
+    $("#ob-seeker")?.addEventListener("click", () => { signupIntent = "jobseeker"; if (su) saveSignupInfo({ ...su, role: "jobseeker" }); try { sessionStorage.removeItem("jsph:emp-setup"); } catch {} viewProfile(); });
+    setTimeout(() => f.querySelector(".ob-input, .name-row input")?.focus({ preventScroll: true }), 60);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault(); sync();
+      if (!screens[key]().ok()) return;
+      if (!screens[key]().last) { i++; draw(); return; }
+      const err = $("#ob-err"); next.disabled = true; next.textContent = "Saving…";
+      const names = { firstName: tidyName(a.firstName), middleName: tidyName(a.middleName), lastName: tidyName(a.lastName) };
+      const data = {
+        role: "employer", fullName: joinName(names.firstName, names.middleName, names.lastName), ...names,
+        phone: a.phone.trim(), city: a.city, messenger: "", photo: p.photo || "", alerts: false, emailNotify: true,
+        companyName: a.companyName.trim(), fbUrl: "", bizReg: "", employerKind: a.kind, needs: a.needs.slice(0, 12), heardFrom: a.heard,
+      };
+      try {
+        await store.saveProfile(data);
+        track("CompleteRegistration", { content_name: "employer" });
+        const no = await store.claimFounder().catch(() => null);
+        if (no) FOUNDERS = await store.founders();
+        myAppsCache = null; pendingName = ""; signupIntent = ""; clearSignupInfo(); clearDraft("role");
+        try { sessionStorage.removeItem("jsph:emp-setup"); } catch {}
+        app.innerHTML = `<div class="ob"><div class="ob-card ob-done">
+          <span class="ob-done-ico">${ICON.check || "✓"}</span>
+          <h1>You're all set${a.firstName ? `, ${esc(tidyName(a.firstName))}` : ""}</h1>
+          <p class="ob-hint">${no ? `You're founding employer #${no} on Job Search PH. ` : ""}Post your first job now. It's free, and we usually check it within a day.</p>
+          <a class="btn btn-primary btn-block" href="#/post">Post a job</a>
+          <a class="btn btn-ghost btn-block" href="#/">Later</a>
+        </div></div>`;
+      } catch (ex) {
+        console.error(ex); next.disabled = false; next.textContent = "Finish setup";
+        err.textContent = `Couldn't save (${ex.code || ex.message}). Try again.`; err.hidden = false;
+      }
+    });
+  };
+  draw();
+}
+
 function viewProfile(focus) {
   if (focus) profileFocus = focus;
   document.title = "My profile | Job Search PH";
@@ -1669,6 +1767,7 @@ function viewProfile(focus) {
 
   const draw = () => {
     if (isNew && role) { try { const k = draftKey("role"); if (k) localStorage.setItem(k, role); } catch {} }
+    if (isNew && role === "employer") return viewEmployerSetup({ user, p, su, knownName });
     const name = p.fullName || user.displayName || "";
     const step = !role ? 1 : 2;
     app.innerHTML = `
@@ -2249,6 +2348,13 @@ async function viewPost(editId = null) {
     applyDraft(f, draft); touchedBenefits = true; renderOptions(); applyDraft(f, draft);
     f.insertAdjacentHTML("afterbegin", draftNote());
     f.querySelector("[data-draft-clear]").addEventListener("click", () => { clearDraft("post"); viewPost(); });
+  }
+  else if (!editJob && profile.employerKind) {
+    const wpIn = f.querySelector(`[name=workplace][value="${profile.employerKind}"]`);
+    if (wpIn) { wpIn.checked = true; wpIn.dispatchEvent(new Event("change", { bubbles: true })); renderOptions(); }
+    const need = (profile.needs || [])[0];
+    const catIn = need && f.querySelector(`[name=category][value="${CSS.escape(need)}"]`);
+    if (catIn) { catIn.checked = true; catIn.dispatchEvent(new Event("change", { bubbles: true })); }
   }
   if (!editJob) autosave("post", f);
   refresh();
