@@ -1,0 +1,10 @@
+import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
+import { readFileSync } from "node:fs"; import { doc, setDoc } from "firebase/firestore";
+const env = await initializeTestEnvironment({ projectId: "demo-jsph", firestore: { rules: readFileSync("firestore.rules", "utf8"), host: "127.0.0.1", port: 8085 } });
+const db = env.authenticatedContext("u1").firestore();
+const base = { role: "employer", fullName: "Ana Reyes", phone: "09171234567", city: "Bacolod City", consent: true };
+let bad = 0; const t = async (n, p) => { try { await p; console.log("PASS", n); } catch (e) { bad++; console.log("FAIL", n); } };
+await t("signIn facebook allowed", assertSucceeds(setDoc(doc(db, "users/u1"), { ...base, signIn: "facebook" })));
+await t("signIn google still allowed", assertSucceeds(setDoc(doc(db, "users/u1"), { ...base, signIn: "google" })));
+await t("signIn other rejected", assertFails(setDoc(doc(db, "users/u1"), { ...base, signIn: "twitter" })));
+await env.cleanup(); process.exit(bad ? 1 : 0);

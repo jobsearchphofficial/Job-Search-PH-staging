@@ -1,0 +1,18 @@
+import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
+import { readFileSync } from "node:fs";
+import { doc, setDoc, getDoc, updateDoc, increment } from "firebase/firestore";
+const env = await initializeTestEnvironment({ projectId: "demo-jsph", firestore: { rules: readFileSync("firestore.rules", "utf8"), host: "127.0.0.1", port: 8085 } });
+await env.withSecurityRulesDisabled(async (c) => { await setDoc(doc(c.firestore(), "admins/boss"), { name: "Mark" }); });
+const anon = env.unauthenticatedContext().firestore(), boss = env.authenticatedContext("boss").firestore(), u = env.authenticatedContext("u1").firestore();
+let bad = 0; const t = async (n, p) => { try { await p; console.log("PASS", n); } catch (e) { bad++; console.log("FAIL", n, e.message?.slice(0, 100)); } };
+await t("visitor counts a visit", assertSucceeds(setDoc(doc(anon, "visits/fb-ad__2026-10-29"), { src: "fb-ad", day: "2026-10-29", n: increment(1) }, { merge: true })));
+await t("second visit adds 1", assertSucceeds(setDoc(doc(anon, "visits/fb-ad__2026-10-29"), { src: "fb-ad", day: "2026-10-29", n: increment(1) }, { merge: true })));
+await t("can't add 100", assertFails(updateDoc(doc(anon, "visits/fb-ad__2026-10-29"), { n: increment(100) })));
+await t("can't start at 50", assertFails(setDoc(doc(anon, "visits/x__2026-10-29"), { src: "x", day: "2026-10-29", n: 50 })));
+await t("id must match", assertFails(setDoc(doc(anon, "visits/other__2026-10-29"), { src: "x", day: "2026-10-29", n: 1 })));
+await t("visitors can't read", assertFails(getDoc(doc(anon, "visits/fb-ad__2026-10-29"))));
+await t("admin reads", assertSucceeds(getDoc(doc(boss, "visits/fb-ad__2026-10-29"))));
+await t("users can't see campaigns", assertFails(getDoc(doc(u, "campaigns/fb-ad"))));
+await t("users can't write campaigns", assertFails(setDoc(doc(u, "campaigns/fb-ad"), { spend: 1 })));
+await t("admin saves campaign", assertSucceeds(setDoc(doc(boss, "campaigns/fb-ad"), { spend: 500 })));
+console.log(bad ? `${bad} FAILED` : "all passed"); await env.cleanup(); process.exit(0);

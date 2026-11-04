@@ -73,6 +73,7 @@ function employmentTypes(j) {
   const s = j.schedule || j.employmentType || "";
   if (s === "Part-time") return ["PART_TIME"];
   if (s === "Project-based") return ["CONTRACTOR"];
+  if (s === "Flexible schedule") return ["FULL_TIME", "PART_TIME"];
   return ["FULL_TIME"];
 }
 

@@ -1,0 +1,12 @@
+import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
+import { readFileSync } from "node:fs";
+import { doc, setDoc } from "firebase/firestore";
+const env = await initializeTestEnvironment({ projectId: "demo-jsph", firestore: { rules: readFileSync("firestore.rules", "utf8"), host: "127.0.0.1", port: 8085 } });
+const day = Math.floor((Date.now() + 28800000) / 86400000);
+const now = new Date(Date.now() + 8 * 3600000); const month = now.getUTCFullYear() * 12 + now.getUTCMonth() + 1;
+const db = env.authenticatedContext("seek").firestore();
+const lim = (applies) => setDoc(doc(db, "limits/seek"), { day, month, applies, posts: 0, messages: 0, reports: 0, support: 0, postsM: 0 });
+let bad = 0; const t = async (name, p) => { try { await p; console.log("PASS", name); } catch (e) { bad++; console.log("FAIL", name); } };
+await t("1st apply", assertSucceeds(lim(1))); await t("2nd apply", assertSucceeds(lim(2))); await t("3rd apply", assertSucceeds(lim(3)));
+await t("4th apply blocked", assertFails(lim(4)));
+console.log(bad ? `${bad} FAILED` : "all passed"); await env.cleanup(); process.exit(bad ? 1 : 0);

@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793816860";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793816860";
-import { fitScore, rankApplicants } from "./match.js?v=1793816860";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793816860";
-import { initPixel, track } from "./pixel.js?v=1793816860";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793816920";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793816920";
+import { fitScore, rankApplicants } from "./match.js?v=1793816920";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793816920";
+import { initPixel, track } from "./pixel.js?v=1793816920";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -10,7 +10,7 @@ const CATEGORIES = [
   "Gardener / Maintenance", "Food service", "Sales / Retail", "Delivery / Rider",
   "Construction / Skilled trade", "Security", "Office / Admin", "Other",
 ];
-const TYPES = ["Live-in", "Stay-out", "Full-time", "Part-time", "Project-based"];
+const TYPES = ["Live-in", "Stay-out", "Full-time", "Part-time", "Flexible schedule", "Project-based"];
 // Negros Occidental only for now: 13 cities and 19 municipalities.
 const CITIES = [
   "Bacolod City", "Talisay City", "Silay City", "Bago City", "Victorias City", "Cadiz City",
@@ -1890,7 +1890,7 @@ const TITLE_FOR = {
   "Laundry": "Laundry helper", "Gardener / Maintenance": "Gardener", "Food service": "Food service crew", "Sales / Retail": "Sales staff",
   "Delivery / Rider": "Delivery rider", "Construction / Skilled trade": "Construction worker", "Security": "Security guard", "Office / Admin": "Office staff",
 };
-const SCHEDULES = { household: ["Full-time", "Part-time"], business: ["Full-time", "Part-time", "Project-based", "Shifts"] };
+const SCHEDULES = { household: ["Full-time", "Part-time", "Flexible schedule"], business: ["Full-time", "Part-time", "Flexible schedule", "Project-based", "Shifts"] };
 const RECOMMENDED = ["SSS", "PhilHealth", "Pag-IBIG", "13th month pay"];
 
 /* ---------------- Get Verified (its own page): ID photo + selfie, checked by an admin ---------------- */

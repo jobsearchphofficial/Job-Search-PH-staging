@@ -1,0 +1,40 @@
+const { chromium } = require("playwright");
+const FS = "http://127.0.0.1:8085/v1/projects/demo-jsph/databases/(default)/documents";
+async function confirmEmails() { const codes = await (await fetch("http://127.0.0.1:9099/emulator/v1/projects/demo-jsph/oobCodes")).json(); for (const c of codes.oobCodes.filter((c) => c.requestType === "VERIFY_EMAIL")) await fetch(c.oobLink); }
+(async () => { const b = await chromium.launch(); const S = process.argv[2];
+  for (const [w, tag] of [[1280, "desk"], [390, "mob"]]) {
+    const p = await b.newPage({ viewport: { width: w, height: 860 } }); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
+    await p.goto("http://localhost:8000/?emu#/join/employer"); await p.waitForSelector("[name=firstName]");
+    await p.fill("[name=firstName]", "rea"); await p.fill("[name=lastName]", "alvarez"); await p.fill("#s-email", `ob${Date.now()}${tag}@example.com`); await p.fill("#s-pw", "secret123"); await p.fill("#s-pw2", "secret123");
+    await p.click("#email-form button[type=submit]"); await p.waitForSelector(".ce-card", { timeout: 15000 }); await confirmEmails();
+    await p.goto("http://localhost:8000/?emu#/profile"); await p.reload(); await p.waitForSelector(".ob", { timeout: 15000 });
+    const shot = async (n) => { await p.waitForTimeout(250); if (tag === "mob" || n === 1 || n === 5) await p.screenshot({ path: `${S}/ob-${tag}-${n}.png` }); };
+    console.log(tag, "| step 1:", await p.locator(".ob h1").innerText(), "|", await p.locator(".ob-step").innerText()); await shot(1);
+    await p.click(".ob-opt:has([value=household])"); await p.waitForTimeout(500); console.log("  stays on step 1 after picking:", await p.locator(".ob h1").innerText()); await p.click(".ob-next"); await p.waitForSelector("[name=companyName]");
+    console.log("  continue disabled when empty:", await p.locator(".ob-next").isDisabled()); await shot(2);
+    await p.fill("[name=companyName]", "Alvarez Family"); await p.click(".ob-next");
+    await p.click(".picker-btn"); await p.fill(".picker-search", "silay"); await p.keyboard.press("Enter"); await shot(3); await p.click(".ob-next");
+    await p.fill("[name=phone]", "0917 12"); console.log("  bad phone disabled:", await p.locator(".ob-next").isDisabled());
+    await p.fill("[name=phone]", "0917 123 4567"); await shot(4); await p.click(".ob-next");
+    console.log("  question:", await p.locator(".ob h1").innerText());
+    await p.click(".ob-opt:has([value='Other'])"); await p.waitForTimeout(200); console.log("  other box shown:", await p.locator("#ob-other").isVisible(), "| continue disabled:", await p.locator(".ob-next").isDisabled());
+    await p.locator("#ob-other-in").pressSequentially("elec", { delay: 40 }); await p.waitForTimeout(250);
+    console.log("  suggestions:", await p.locator("#ob-other-list li").allInnerTexts()); await shot(5);
+    await p.locator("#ob-other-list li").first().dispatchEvent("mousedown"); await p.waitForTimeout(150);
+    console.log("  picked:", await p.inputValue("#ob-other-in"), "| continue enabled:", !(await p.locator(".ob-next").isDisabled())); await p.click(".ob-next");
+    await p.click(".ob-opt:has([value=Facebook])"); console.log("  finish disabled before consent:", await p.locator(".ob-next").isDisabled());
+    await p.check("[name=consent]"); await shot(6);
+    await p.click("#ob-back"); console.log("  back keeps picks:", await p.locator(".ob-opt.on").count(), "on needs screen, other:", await p.inputValue("#ob-other-in")); await p.click(".ob-next");
+    await p.check("[name=consent]"); await p.click(".ob-next"); await p.waitForSelector(".ob-done", { timeout: 15000 }); await shot(7);
+    console.log("  done:", (await p.locator(".ob-done h1").innerText()));
+    const uid = await p.evaluate(async () => { const v = [...document.scripts].find((s) => s.src.includes("app.js")).src.split("?v=")[1]; return (await import(`/assets/store.js?v=${v}`)).getAuthState().user.uid; });
+    const F = (await (await fetch(`${FS}/users/${uid}`, { headers: { authorization: "Bearer owner" } })).json()).fields;
+    const v = (x) => x?.stringValue ?? (x?.arrayValue ? (x.arrayValue.values || []).map((y) => y.stringValue).join("+") : x?.booleanValue);
+    console.log("  saved:", ["role", "fullName", "companyName", "city", "phone", "employerKind", "needs", "heardFrom", "consent"].map((k) => `${k}=${v(F[k])}`).join(" | "));
+    await fetch(`${FS}/phoneVerified/${uid}`, { method: "PATCH", headers: { authorization: "Bearer owner", "content-type": "application/json" }, body: JSON.stringify({ fields: { phone: { stringValue: "+639171234567" }, at: { timestampValue: new Date().toISOString() } } }) });
+    await p.click(".ob-done a.btn-primary"); await p.waitForTimeout(2500);
+    if (!(await p.locator("#post-form").count())) { console.log("  before post form:", (await p.locator("#app").innerText()).replace(/\s+/g, " ").slice(0, 140)); const sk = p.locator("#phone-gate button:has-text('Skip'), #phone-gate .linkbtn"); if (await sk.count()) await sk.last().click(); }
+    await p.waitForSelector("#post-form", { timeout: 15000 }); await p.waitForTimeout(800);
+    console.log("  first post prefilled:", await p.locator("[name=workplace]:checked").getAttribute("value"), "/", await p.locator("[name=category]:checked").getAttribute("value").catch(() => "none"), "/", await p.inputValue("[name=categoryOther]").catch(() => ""), "| errors:", errs.length ? errs : "none");
+    await p.close();
+  } await b.close(); })();

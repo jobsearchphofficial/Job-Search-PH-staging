@@ -1,0 +1,53 @@
+const { chromium } = require("playwright");
+process.on("unhandledRejection", (e) => { console.log("FAILED AT:", global.step, e.message.split("\n")[0]); process.exit(1); });
+const FS = "http://127.0.0.1:8085/v1/projects/demo-jsph/databases/(default)/documents";
+const H = { authorization: "Bearer owner", "content-type": "application/json" };
+const getDoc = async (path) => (await fetch(`${FS}/${path}`, { headers: H })).json();
+(async () => {
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1100, height: 1000 } });
+  await p.exposeFunction("__confirmEmails", async () => { const c = await (await fetch("http://127.0.0.1:9099/emulator/v1/projects/demo-jsph/oobCodes")).json(); for (const x of (c.oobCodes || []).filter((x) => x.requestType === "VERIFY_EMAIL")) await fetch(x.oobLink); });
+  const errs = []; p.on("pageerror", (e) => errs.push(e.message));
+  await p.goto("http://localhost:8000/?emu#/"); await p.waitForTimeout(2500);
+  const V = await p.evaluate(() => [...document.scripts].find((s) => s.src.includes("app.js")).src.split("?v=")[1]);
+  global.step = 10;
+  await p.evaluate(async (v) => { const m = await import(`/assets/store.js?v=${v}`); await m.store.signUpEmail("emp3@example.com", "secret123", "Rea"); await new Promise((r) => setTimeout(r, 1200)); await window.__confirmEmails(); await m.store.refreshVerified();
+    await m.store.saveProfile({ role: "employer", fullName: "Rea Alvarez", phone: "09171234567", city: "Bacolod City", messenger: "rhea.alvarez", companyName: "Alvarez family", fbUrl: "", bizReg: "" }); }, V);
+  await p.goto("http://localhost:8000/?emu#/post"); await p.reload(); await p.waitForSelector(".crow", { timeout: 15000 });
+  const defaults = await p.$$eval(".crow", (rs) => rs.map((r) => r.querySelector("select").value + ":" + r.querySelector("input").value));
+  console.log("default contacts:", defaults.join(" | "));
+  // fill a valid post
+  global.step = 16;
+  await p.click("label:has(input[name=workplace][value=household])"); await p.waitForTimeout(300);
+  global.step = 17;
+  await p.click("label:has(input[name=category][value='Yaya / Nanny'])"); await p.waitForTimeout(300); await p.click("label:has(input[name=arrangement][value='Live-in'])");
+  global.step = 18;
+  for (const sel of ["[name=title]", "#p-city", "[name=salaryMin]", "[name=description]"]) console.log(sel, await p.locator(sel).count(), await p.locator(sel).first().isVisible(), await p.locator(sel).first().isEditable().catch(() => "x")); await p.fill("[name=title]", "Live-in Yaya"); await p.fill("#p-city", "Bacolod City"); await p.fill("[name=salaryMin]", "8000");
+  global.step = 19;
+  await p.fill("textarea[name=description]", "Care for one baby and light cleaning. Family of four in Mandalagan.");
+  for (const n of ["agreeWage", "agreeFee", "agreeAge", "agreeTerms"]) await p.click(`label:has([name=${n}])`);
+  // remove email row, add a second phone
+  global.step = 22;
+  await p.locator(".crow").nth(2).locator(".crow-x").click();
+  global.step = 23;
+  await p.click("#add-contact"); await p.locator(".crow").last().locator("input").fill("0998 765 4321");
+  global.step = 24;
+  await p.locator(".contact-rows").scrollIntoViewIfNeeded(); await p.screenshot({ path: "../contacts-form.png" });
+  // bad value check
+  global.step = 26;
+  await p.locator(".crow").nth(1).locator("input").fill("123"); await p.click("#post-form button[type=submit]"); await p.waitForTimeout(800);
+  console.log("bad contact error:", await p.locator("#form-error").textContent());
+  global.step = 28;
+  await p.locator(".crow").nth(1).locator("input").fill("09171234567");
+  global.step = 29;
+  await p.click("#post-form button[type=submit]"); await p.waitForTimeout(2500);
+  const r = await p.evaluate(() => document.querySelector("h1")?.textContent);
+  console.log("after submit:", r);
+  const jobs = await (await fetch(`${FS}:runQuery`, { method: "POST", headers: H, body: JSON.stringify({ structuredQuery: { from: [{ collectionId: "jobs" }] } }) })).json();
+  const id = jobs.find((x) => x.document)?.document.name.split("/").pop();
+  const c = (await getDoc(`jobs/${id}/private/contact`)).fields;
+  console.log("saved contact:", c.contactMethod.stringValue, c.contactValue.stringValue, "| list:", c.contacts.arrayValue.values.map((v) => v.mapValue.fields.contactMethod.stringValue + ":" + v.mapValue.fields.contactValue.stringValue).join(" | "));
+  await p.goto(`http://localhost:8000/?emu#/post/edit/${id}`); await p.waitForSelector(".crow", { timeout: 15000 });
+  console.log("edit prefill:", (await p.$$eval(".crow", (rs) => rs.map((r) => r.querySelector("select").value + ":" + r.querySelector("input").value))).join(" | "));
+  console.log("errors:", errs);
+  await b.close();
+})();
