@@ -65,7 +65,7 @@ function applicantBlock(a, { highlight = false } = {}) {
   const reasons = [...f.good.slice(0, 3).map((g) => `✓ ${esc(g)}`), ...f.gaps.slice(0, 2).map((g) => `– ${esc(g)}`)].join("<br>");
   return card(`
     <div style="font-size:16px;font-weight:bold;color:#111111;">${esc(x.fullName || "Applicant")}${x.age ? `, ${esc(x.age)}` : ""}${VERIFIED_IDS?.has(a.applicantUid) ? ` <span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#15803d;font-size:12px;font-weight:bold;vertical-align:middle;">✓ Verified</span>` : ""}</div>
-    <div style="font-size:13px;line-height:20px;color:#6b7186;margin-bottom:6px;">${esc(x.city || "")}${expText(x.experienceYears) ? ` · ${esc(expText(x.experienceYears))} experience` : ""}${x.availability ? ` · ${esc(x.availability)}` : ""}</div>
+    <div style="font-size:13px;line-height:20px;color:#6b7186;margin-bottom:6px;">${esc([x.barangay, x.city].filter(Boolean).join(", "))}${expText(x.experienceYears) ? ` · ${esc(expText(x.experienceYears))} experience` : ""}${x.availability ? ` · ${esc(x.availability)}` : ""}</div>
     <div style="font-size:14px;margin-bottom:6px;"><strong style="color:${fitColor(f.score)};font-size:18px;">${f.score}/100</strong> <span style="color:#333;">${esc(f.label)}</span></div>
     <div style="font-size:13px;line-height:20px;color:#555555;">${reasons}</div>`,
     highlight ? "#15803d" : "#3d4fd6", highlight ? "#f0fdf4" : "#f6f7fe");

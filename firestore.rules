@@ -49,7 +49,7 @@ service cloud.firestore {
           'birthDate','gender','jobCategories','jobTypes','experienceYears','skills','workHistory',
           'education','availability','resumeUrl','resumeFileUrl','resumeFileName','companyName','photo','email','src','jobCategoryOther',
           'fbUrl','bizReg','signIn','emailVerified','alerts','alertsScope','alertsToken','emailNotify',
-          'firstName','middleName','lastName','employerKind','needs','heardFrom'])
+          'firstName','middleName','lastName','employerKind','needs','heardFrom','barangay'])
         && d.role in ['jobseeker', 'employer']
         && str(d.fullName, 2, 80)
         && optStr(d.get('firstName', null), 40)
@@ -60,6 +60,7 @@ service cloud.firestore {
         && optStr(d.get('heardFrom', null), 40)
         && str(d.phone, 7, 20)
         && str(d.city, 1, 60)
+        && optStr(d.get('barangay', null), 60)
         && d.consent == true
         && optStr(d.get('messenger', null), 100)
         && optStr(d.get('birthDate', null), 10)

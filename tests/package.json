@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "emu": "cp ../firestore.rules . && firebase emulators:start --only firestore,auth --project demo-jsph",
-    "rules": "cp ../firestore.rules . && firebase emulators:exec --only firestore --project demo-jsph \"node rules-applies.mjs && node rules-chat.mjs && node rules-gate.mjs && node rules-watch.mjs\"",
+    "rules": "cp ../firestore.rules . && firebase emulators:exec --only firestore --project demo-jsph \"node rules-applies.mjs && node rules-chat.mjs && node rules-gate.mjs && node rules-watch.mjs && node rules-barangay.mjs\"",
     "site": "cd .. && python3 -m http.server 8000"
   },
   "keywords": [],

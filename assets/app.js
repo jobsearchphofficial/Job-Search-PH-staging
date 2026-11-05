@@ -1,8 +1,8 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793816920";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793816920";
-import { fitScore, rankApplicants } from "./match.js?v=1793816920";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793816920";
-import { initPixel, track } from "./pixel.js?v=1793816920";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793862985";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793862985";
+import { fitScore, rankApplicants } from "./match.js?v=1793862985";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793862985";
+import { initPixel, track } from "./pixel.js?v=1793862985";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -29,6 +29,7 @@ const BARANGAYS = {
   "Bago City": ["Abuanan", "Alianza", "Atipuluan", "Bacong-Montilla", "Bagroy", "Balingasag", "Binubuhan", "Busay", "Calumangan", "Caridad",
     "Don Jorge L. Araneta", "Dulao", "Ilijan", "Lag-Asan", "Ma-ao", "Mailum", "Malingin", "Napoles", "Pacol", "Poblacion", "Sagasa", "Sampinit", "Tabunan", "Taloc"],
 };
+const livesIn = (x) => [x?.barangay, x?.city].filter(Boolean).join(", "); // "Mandalagan, Bacolod City"
 const AREAS = Object.entries(BARANGAYS).flatMap(([city, list]) => list.map((b) => [b, city]));
 // Job titles people search for most, used for "What" suggestions.
 const POPULAR_TITLES = [
@@ -1275,7 +1276,7 @@ async function renderApplyPanel(j, isOwner) {
   panel.innerHTML = `
     <h2>Apply for this job</h2>
     <p class="usage">${usage.applies || 0} of ${LIMITS.applies} applications used today</p>
-    <p class="muted small">The employer will see your profile: <strong>${esc(profile.fullName)}</strong>${age ? `, ${age}` : ""}, ${esc(profile.city)}, ${esc(profile.phone)}, plus your experience${profile.resumeUrl || profile.resumeFileUrl ? " and resume" : ""}. <a href="#/profile">Edit profile</a></p>
+    <p class="muted small">The employer will see your profile: <strong>${esc(profile.fullName)}</strong>${age ? `, ${age}` : ""}, ${esc(livesIn(profile))}, ${esc(profile.phone)}, plus your experience${profile.resumeUrl || profile.resumeFileUrl ? " and resume" : ""}. <a href="#/profile">${profile.barangay ? "Edit profile" : "Add your barangay"}</a></p>
     ${(() => { const st = profileStrength(profile); return st.score < 90 ? `<a class="s-nudge ${st.cls}" href="#/profile"><span><strong>${st.level} profile · ${st.score}/100.</strong> ${esc(st.todo[0]?.todo || "")} to get noticed.</span><em>Improve</em></a>` : ""; })()}
     <form id="apply-form">
       <label for="a-msg" class="small"><strong>Message to the employer</strong> (optional)</label>
@@ -1567,6 +1568,10 @@ function viewProfile(focus) {
           <label>Mobile number *<input name="phone" required inputmode="tel" autocomplete="tel" placeholder="0917 123 4567" value="${esc(p.phone)}"></label>
           <div class="fld-city"><span class="label">City / municipality *</span>${cityPicker("city", p.city)}</div>
         </div>
+        ${role === "jobseeker" ? `<div class="fld"><label for="p-brgy">Barangay *</label><div class="field ac boxed"><span class="ico">${ICON.pin}</span>
+          <input id="p-brgy" name="barangay" required maxlength="60" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="p-brgy-list" aria-autocomplete="list" placeholder="e.g. Mandalagan" value="${esc(p.barangay || "")}">
+          <ul class="ac-list" id="p-brgy-list" role="listbox" hidden></ul></div>
+          <span class="hint">Only employers you apply to can see this. Don't add your street or house number.</span></div>` : ""}
         <div class="row">
           ${role === "jobseeker" ? `<label ${knownBirth ? "data-known hidden" : ""}>Birthdate *<span class="date-age"><input name="birthDate" type="date" required max="${maxBirth}" value="${esc(p.birthDate)}"><output id="age-out" class="age-pill">${ageFrom(p.birthDate) != null ? `${ageFrom(p.birthDate)} years old` : "Age"}</output></span><span class="hint">You must be at least 18. Employers see your age, not your birthdate.</span></label>`
             : `<label>Household or business name<input name="companyName" maxlength="100" placeholder="e.g. Reyes Family or Inasal Express" value="${esc(p.companyName)}"></label>`}
@@ -1630,7 +1635,7 @@ function viewProfile(focus) {
 
   const collect = () => {
     const f = $("#profile-form"); if (!f) return;
-    ["firstName", "middleName", "lastName", "phone", "city", "messenger", "birthDate", "companyName", "fbUrl", "bizReg", "experienceYears", "availability", "skills", "workHistory", "resumeUrl"]
+    ["firstName", "middleName", "lastName", "phone", "city", "barangay", "messenger", "birthDate", "companyName", "fbUrl", "bizReg", "experienceYears", "availability", "skills", "workHistory", "resumeUrl"]
       .forEach((k) => { if (f[k]) p[k] = f[k].value; });
     if (f.firstName) p.fullName = joinName(p.firstName, p.middleName, p.lastName);
     if (f.eduLevel) p.education = [f.eduLevel.value, f.eduSchool.value.trim()].filter(Boolean).join(" · ");
@@ -1649,6 +1654,15 @@ function viewProfile(focus) {
     }));
     f.alerts?.addEventListener("change", () => { $("#alerts-scope").hidden = !f.alerts.checked; });
     bindOptionalPills(f); bindPickers(f);
+    if (f.barangay) {
+      autocomplete(f.barangay, $("#p-brgy-list"), (term) => {
+        const t = term.trim().toLowerCase(); const list = BARANGAYS[f.city.value] || [];
+        return list.filter((b) => !t || b.toLowerCase().startsWith(t) || b.toLowerCase().split(/[\s.-]+/).some((w) => w.startsWith(t)))
+          .map((b) => ({ value: b, html: hl(b, t), meta: "Barangay" }));
+      }, () => {}, true);
+      let lastCity = f.city.value; // a new city means the old barangay no longer applies
+      f.city.addEventListener("change", () => { if (f.city.value !== lastCity) { lastCity = f.city.value; f.barangay.value = ""; } });
+    }
     f.addEventListener("input", (e) => e.target.classList?.remove("invalid"));
     const pd = loadDraft(`profile:${role}`);
     if (pd) {
@@ -1696,9 +1710,11 @@ function viewProfile(focus) {
       const ph = digits(phone).replace(/^\+/, "");
       if (ph.length < 10 || ph.length > 13) return fail("Enter a complete mobile number, e.g. 0917 123 4567.", f.phone);
       if (!p.city) return fail("Choose your city or municipality.", f.querySelector(".picker-btn"));
+      if (f.barangay) { p.barangay = (p.barangay || "").trim().replace(/\s+/g, " "); if (!p.barangay) return fail("Add your barangay.", f.barangay); }
       if (p.messenger && !/^https?:\/\//i.test(p.messenger) && /facebook\.com|fb\.com|m\.me/i.test(p.messenger)) p.messenger = `https://${p.messenger.trim()}`;
       if (p.messenger && !messengerUrl(p.messenger)) return fail("That Facebook link doesn't look right. It should look like https://facebook.com/yourname", f.messenger);
       const data = { role, fullName, ...names, phone, city: p.city, messenger: (p.messenger || "").trim(), photo: p.photo || "" };
+      if (role === "jobseeker") data.barangay = p.barangay;
       if (role === "jobseeker") {
         const age = ageFrom(p.birthDate);
         if (!p.birthDate || age === null) return fail("Enter your birthdate.", f.birthDate);
@@ -2517,7 +2533,7 @@ function applicantCard(a, { top = false, readOnly = false } = {}) {
     ["Phone", x.phone ? `<span class="copyable">${esc(x.phone)}</span>` : ""],
     ["Email", x.email ? `<a href="mailto:${esc(x.email)}">${esc(x.email)}</a>` : ""],
     ["Facebook", m ? `<a href="${esc(m)}" target="_blank" rel="noopener nofollow">Message on Messenger</a>` : ""],
-    ["Lives in", esc(x.city || "")],
+    ["Lives in", esc(livesIn(x))],
     ["Experience", exp],
     ["Can start", esc(x.availability || "")],
     ["Education", esc(x.education || "")],
@@ -2530,7 +2546,7 @@ function applicantCard(a, { top = false, readOnly = false } = {}) {
     <header class="ap-head">
       ${avatar(x.fullName, x.photo, "md")}
       <div class="ap-name"><h3>${esc(x.fullName)}${x.age ? `, ${esc(x.age)}` : ""}</h3>
-        <p class="muted small">${[x.gender && esc(x.gender), esc(x.city || ""), `applied ${ago(a.createdAt)}`].filter(Boolean).join(" · ")}</p></div>
+        <p class="muted small">${[x.gender && esc(x.gender), esc(livesIn(x)), `applied ${ago(a.createdAt)}`].filter(Boolean).join(" · ")}</p></div>
       <div class="ap-badges">${verifiedBadge(a.applicantUid)}${founderBadge(a.applicantUid, "jobseeker")}${strengthChip(x)}${appBadge(a.status, true)}</div>
     </header>
     ${fitHtml(a.fit, top)}
@@ -2839,7 +2855,7 @@ async function viewChat(appId) {
         <a href="#/messages" class="back" aria-label="Back to messages">←</a>
         ${avatar(name, iAmEmployer ? x.photo : "")}
         <div class="chat-who"><span class="chat-name"><strong>${esc(name)}</strong>${(iAmEmployer ? verifiedBadge(a.applicantUid, { short: true }) + founderBadge(a.applicantUid, "jobseeker", { short: true }) : verifiedBadge(a.employerUid, { short: true }) + founderBadge(a.employerUid, "employer", { short: true }))}</span>
-          <span class="muted small">${iAmEmployer ? `${x.age ? `${esc(x.age)} · ` : ""}${esc(x.city || "")} · ` : ""}<a href="#/job/${encodeURIComponent(a.jobId)}">${esc(a.jobTitle)}</a></span></div>
+          <span class="muted small">${iAmEmployer ? `${x.age ? `${esc(x.age)} · ` : ""}${esc(livesIn(x))} · ` : ""}<a href="#/job/${encodeURIComponent(a.jobId)}">${esc(a.jobTitle)}</a></span></div>
         <span id="chat-badge"></span>
       </header>
       <div id="chat-banner"></div>

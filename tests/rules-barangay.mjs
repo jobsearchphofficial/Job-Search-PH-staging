@@ -1,0 +1,13 @@
+import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
+import { readFileSync } from "node:fs";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+const env = await initializeTestEnvironment({ projectId: "demo-jsph", firestore: { rules: readFileSync("firestore.rules", "utf8"), host: "127.0.0.1", port: 8085 } });
+const seeker = env.authenticatedContext("s1").firestore(), emp = env.authenticatedContext("e1").firestore(), anon = env.unauthenticatedContext().firestore();
+const prof = (x = {}) => ({ role: "jobseeker", fullName: "Maria Santos", phone: "09171234567", city: "Bacolod City", consent: true, ...x });
+let bad = 0; const t = async (n, p) => { try { await p; console.log("PASS", n); } catch (e) { bad++; console.log("FAIL", n, e.message?.slice(0, 100)); } };
+await t("profile without barangay still ok", assertSucceeds(setDoc(doc(seeker, "users/s1"), prof())));
+await t("barangay saves", assertSucceeds(setDoc(doc(seeker, "users/s1"), prof({ barangay: "Mandalagan" }))));
+await t("too-long barangay refused", assertFails(setDoc(doc(seeker, "users/s1"), prof({ barangay: "x".repeat(61) }))));
+await t("employer can't read a jobseeker's profile", assertFails(getDoc(doc(emp, "users/s1"))));
+await t("visitor can't read a jobseeker's profile", assertFails(getDoc(doc(anon, "users/s1"))));
+console.log(bad ? `${bad} FAILED` : "all passed"); await env.cleanup(); process.exit(bad ? 1 : 0);
