@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793951688";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793951688";
-import { fitScore, rankApplicants } from "./match.js?v=1793951688";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793951688";
-import { initPixel, track } from "./pixel.js?v=1793951688";
-import { IDENTITY, employersHtml } from "./pages.js?v=1793951688";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793952096";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793952096";
+import { fitScore, rankApplicants } from "./match.js?v=1793952096";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793952096";
+import { initPixel, track } from "./pixel.js?v=1793952096";
+import { IDENTITY, employersHtml } from "./pages.js?v=1793952096";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1049,7 +1049,24 @@ async function viewList() {
       </div>`;
     $("#empty-clear")?.addEventListener("click", () => { Object.assign(filters, { q: "", where: "", category: "", type: "", minPay: "" }); viewList(); });
   };
-  const sync = () => { const f = $("#search"); filters.q = f.q.value; filters.where = f.where.value; draw(); };
+  // Search runs when the person taps Search, presses Enter or picks a suggestion, not on every keystroke.
+  // A short "Searching…" pause makes it clear the results changed.
+  let searchTimer = 0;
+  const sync = () => {
+    const f = $("#search"); filters.q = f.q.value; filters.where = f.where.value;
+    clearTimeout(searchTimer);
+    const btn = f.querySelector("button[type=submit]");
+    $("#count").textContent = "Searching…"; $("#active-filters").innerHTML = "";
+    $("#results").setAttribute("aria-busy", "true"); $("#results").innerHTML = SK.cards(3);
+    btn.disabled = true; btn.textContent = "Searching…";
+    searchTimer = setTimeout(() => {
+      if (!$("#search")) return; // left the page
+      btn.disabled = false; btn.textContent = "Search"; $("#results").removeAttribute("aria-busy");
+      draw();
+    }, 900);
+  };
+  // Emptying a box (typing it away or the × button) shows everything again right away.
+  const clearIfEmpty = (name) => (e) => { if (!e.target.value.trim() && filters[name]) { filters[name] = ""; draw(); } };
   // Filter pick-lists (Type, Pay, Sort).
   const setMsel = (name, v) => {
     const box = app.querySelector(`[data-msel="${name}"]`); if (!box) return;
@@ -1092,7 +1109,7 @@ async function viewList() {
     const starts = (s) => s.toLowerCase().split(/[\s/-]+/).some((w) => w.startsWith(t)) || s.toLowerCase().startsWith(t);
     return [...counts.values()].filter((x) => starts(x.label)).sort((a, b) => b.n - a.n).slice(0, 8)
       .map((x) => { const n = live().filter((j) => `${j.title} ${j.category}`.toLowerCase().includes(x.label.toLowerCase())).length; return { value: x.label, html: hl(x.label, t), meta: n ? `${n} open` : "" }; });
-  }, (v) => { filters.q = v; draw(); });
+  }, (v) => { $("#q").value = v; sync(); });
   autocomplete($("#where"), $("#where-list"), (term) => {
     const t = term.trim().toLowerCase().replace(/ city$/, ""); if (!t) return [];
     const jobsIn = (pred) => live().filter(pred).length;
@@ -1104,10 +1121,10 @@ async function viewList() {
     const areaHits = [...areaSet.values()].filter(([a]) => a.toLowerCase().split(/[\s-]+/).some((w) => w.startsWith(t)) || a.toLowerCase().startsWith(t))
       .map(([a, c]) => ({ value: a, html: `${hl(a, t)} <span class="ac-sub">· ${esc(c)}</span>`, meta: (() => { const n = jobsIn((j) => (j.area || "").toLowerCase() === a.toLowerCase()); return n ? `${n} job${n === 1 ? "" : "s"}` : "Barangay"; })(), n: jobsIn((j) => (j.area || "").toLowerCase() === a.toLowerCase()) }));
     return [...cityHits, ...areaHits].sort((a, b) => Math.floor(b.n) - Math.floor(a.n)).slice(0, 8);
-  }, (v) => { filters.where = v; draw(); });
+  }, (v) => { $("#where").value = v; sync(); });
   $("#search").addEventListener("submit", (e) => { e.preventDefault(); sync(); $("#results").scrollIntoView({ behavior: "smooth", block: "start" }); });
-  $("#q").addEventListener("input", sync);
-  $("#where").addEventListener("input", sync);
+  $("#q").addEventListener("input", clearIfEmpty("q"));
+  $("#where").addEventListener("input", clearIfEmpty("where"));
   app.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => {
     filters.category = b.dataset.cat;
     app.querySelectorAll("[data-cat]").forEach((x) => x.classList.toggle("on", x === b)); draw();
