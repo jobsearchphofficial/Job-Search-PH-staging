@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793951381";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793951381";
-import { fitScore, rankApplicants } from "./match.js?v=1793951381";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793951381";
-import { initPixel, track } from "./pixel.js?v=1793951381";
-import { IDENTITY, employersHtml } from "./pages.js?v=1793951381";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793951688";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793951688";
+import { fitScore, rankApplicants } from "./match.js?v=1793951688";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793951688";
+import { initPixel, track } from "./pixel.js?v=1793951688";
+import { IDENTITY, employersHtml } from "./pages.js?v=1793951688";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1631,7 +1631,7 @@ function viewProfile(focus) {
       <fieldset id="pf-emails">
         <legend>Emails</legend>
         <label class="check"><input type="checkbox" name="emailNotify" ${p.emailNotify === false ? "" : "checked"}>
-          <span>Email me when someone applies and when my posts are approved${user.email ? ` (to <strong>${esc(user.email)}</strong>)` : ""}</span></label>
+          <span>Email me once a day (in the evening) with my best new applicants, and when my posts are approved${user.email ? ` (to <strong>${esc(user.email)}</strong>)` : ""}</span></label>
       </fieldset>` : ""}
       ${role === "jobseeker" ? `
       <fieldset>

@@ -231,7 +231,7 @@ function layout({ site, title, preheader = "", body, footerNote = "", safety = f
     <tr><td style="padding:44px 4px 0 4px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #e7e8ef;"><tr>
         <td style="padding-top:22px;font-family:${F};font-size:13px;line-height:20px;color:#6b7186;vertical-align:top;">
-          <strong style="color:#1b2150;">Job Search PH</strong><br>Verified workers. Trusted employers. One platform.<br>Bacolod City, Negros Occidental, Philippines
+          <strong style="color:#1b2150;">Job Search PH</strong><br>The local job board for Negros Occidental.<br>Bacolod City, Negros Occidental, Philippines
         </td>
         <td align="right" style="padding-top:22px;vertical-align:top;white-space:nowrap;">
           <a href="https://www.facebook.com/thejobsearchph" style="text-decoration:none;"><img src="${img("facebook")}" width="22" height="22" alt="Facebook" style="display:inline-block;border:0;"></a>
@@ -241,7 +241,7 @@ function layout({ site, title, preheader = "", body, footerNote = "", safety = f
       </tr></table>
       ${footerNote ? `<p style="margin:18px 0 0 0;font-family:${F};font-size:12px;line-height:18px;color:#8a8fa3;">${footerNote}</p>` : ""}
       <p style="margin:12px 0 0 0;font-family:${F};font-size:12px;line-height:18px;color:#8a8fa3;"><a href="${site}/#/safety" style="color:#6b7186;text-decoration:underline;">Help &amp; safety</a> &nbsp;·&nbsp; <a href="${site}/#/privacy" style="color:#6b7186;text-decoration:underline;">Privacy</a> &nbsp;·&nbsp; <a href="${site}" style="color:#6b7186;text-decoration:underline;">jobsearchph.com</a></p>
-      <p style="margin:10px 0 0 0;font-family:${F};font-size:11px;line-height:17px;color:#a3a7b6;">Job Search PH is a job listing board. We do not recruit, screen or place workers, and we never charge jobseekers.</p>
+      <p style="margin:10px 0 0 0;font-family:${F};font-size:11px;line-height:17px;color:#a3a7b6;">Job Search PH is the local job board for Negros Occidental. We list jobs; we do not recruit, screen or place workers, and we never charge jobseekers.</p>
     </td></tr>
   </table>
 </td></tr></table></body></html>`;
