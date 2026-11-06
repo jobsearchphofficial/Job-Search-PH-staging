@@ -56,7 +56,7 @@ service cloud.firestore {
         && optStr(d.get('middleName', null), 40)
         && optStr(d.get('lastName', null), 40)
         && (d.get('employerKind', null) == null || d.employerKind in ['household', 'business'])
-        && (d.get('needs', null) == null || (d.needs is list && d.needs.size() <= 12))
+        && (d.get('needs', null) == null || (d.needs is list && d.needs.size() <= 24))
         && optStr(d.get('heardFrom', null), 40)
         && str(d.phone, 7, 20)
         && str(d.city, 1, 60)
@@ -108,7 +108,8 @@ service cloud.firestore {
           'salaryMin','salaryMax','salaryPeriod','description','requirements',
           'area','address','addressHidden','workplace','arrangement','schedule','hours','daysOff','daysOffPer','openings','startDate','benefits',
           'reqExperience','reqEducation','reqList',
-          'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt','editedAt','infoNote','infoAt'])
+          'shiftType','shiftNote','daysPerWeek',
+          'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt','editedAt','infoNote','infoAt','rejectReason'])
         && str(d.title, 3, 100)
         && str(d.category, 1, 40)
         && optStr(d.get('categoryOther', null), 40)
@@ -135,7 +136,11 @@ service cloud.firestore {
         && optStr(d.get('schedule', null), 20)
         && optNum(d.get('reqExperience', null))
         && optStr(d.get('reqEducation', null), 40)
-        && (d.get('reqList', null) == null || (d.reqList is list && d.reqList.size() <= 20));
+        && (d.get('reqList', null) == null || (d.reqList is list && d.reqList.size() <= 20))
+        && (d.get('shiftType', null) == null || d.shiftType in ['', 'fixed', 'shifts', 'rotating'])
+        && optStr(d.get('shiftNote', null), 100)
+        && (d.get('daysPerWeek', null) == null || (d.daysPerWeek is number && d.daysPerWeek >= 1 && d.daysPerWeek <= 7))
+        && optStr(d.get('rejectReason', null), 300);
     }
 
     match /jobs/{jobId} {
@@ -170,6 +175,7 @@ service cloud.firestore {
                          'title','category','categoryOther','employerName','city','area','address','addressHidden','workplace',
                          'arrangement','schedule','employmentType','salaryMin','salaryMax','salaryPeriod','hours','daysOff','daysOffPer',
                          'openings','startDate','benefits','reqExperience','reqEducation','reqList','requirements','description',
+                         'shiftType','shiftNote','daysPerWeek',
                          'status','updatedAt','editedAt'])
                     && validJob(request.resource.data);
       // Owners may delete their posts when they delete their account.
@@ -193,8 +199,22 @@ service cloud.firestore {
       }
     }
 
+    /* ---------- Employer track record ---------- */
+    // Built by the email robot from how past hires ended (what workers said). Signed-in users can read it.
+    match /employerRecord/{uid} {
+      allow get: if signedIn();
+    }
+
     /* ---------- Applications ---------- */
     match /applications/{appId} {
+      // Which side am I on this application? Each side only writes its own reason, reply and dispute.
+      function iAmEmp() { return resource.data.employerUid == me(); }
+      function myEndKey() { return iAmEmp() ? 'endReasonEmployer' : 'endReasonWorker'; }
+      function myReplyKey() { return iAmEmp() ? 'replyEmployer' : 'replyWorker'; }
+      function myDisputeKey() { return iAmEmp() ? 'disputeEmployer' : 'disputeWorker'; }
+      function validEndReason(r) {
+        return r == null || (iAmEmp() ? r in ['finished', 'resigned', 'let_go', 'no_show'] : r in ['finished', 'resigned', 'let_go', 'unpaid', 'no_reply']);
+      }
       allow read: if (signedIn() && (resource.data.applicantUid == me() || resource.data.employerUid == me())) || isAdmin();
       allow create: if signedIn() && notBanned()
                     && appId == request.resource.data.jobId + '_' + me()
@@ -286,28 +306,52 @@ service cloud.firestore {
                       && (!exists(limPath()) || get(limPath()).data.get('msgAt', null) == null
                           || request.time > get(limPath()).data.msgAt + duration.value(2, 's'));
       }
-      // Ending a job needs both sides: one asks, the other confirms (or says not yet).
+      // Ending a job needs both sides: one asks, the other confirms (or says not yet). Each side gives
+      // its own reason. If the other side doesn't answer for 7 days, the one who asked can close it.
       allow update: if signedIn()
                     && (resource.data.applicantUid == me() || resource.data.employerUid == me())
                     && resource.data.status == 'hired'
                     && resource.data.get('employmentEnded', false) != true
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['endRequestedBy', 'endRequestedAt', 'employmentEnded', 'endedAt', 'updatedAt'])
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['endRequestedBy', 'endRequestedAt', 'employmentEnded', 'endedAt', 'updatedAt', 'endUnanswered', myEndKey()])
+                    && validEndReason(request.resource.data.get(myEndKey(), null))
                     && (
-                      // ask to end
+                      // ask to end, with my reason
                       (resource.data.get('endRequestedBy', null) == null
                         && request.resource.data.endRequestedBy == me()
                         && request.resource.data.endRequestedAt == request.time
+                        && request.resource.data.get(myEndKey(), null) != null
                         && request.resource.data.get('employmentEnded', false) == false)
-                      // withdraw my request, or say "not yet" to theirs
+                      // withdraw my request (my reason is cleared), or say "not yet" to theirs
                       || (resource.data.get('endRequestedBy', null) != null
                         && request.resource.data.endRequestedBy == null
-                        && request.resource.data.get('employmentEnded', false) == false)
-                      // confirm the other side's request
+                        && request.resource.data.get('employmentEnded', false) == false
+                        && (resource.data.endRequestedBy == me()
+                              ? request.resource.data.get(myEndKey(), null) == null
+                              : request.resource.data.get(myEndKey(), null) == resource.data.get(myEndKey(), null)))
+                      // confirm the other side's request, with my reason
                       || (resource.data.get('endRequestedBy', null) != null
                         && resource.data.endRequestedBy != me()
                         && request.resource.data.employmentEnded == true
-                        && request.resource.data.endedAt == request.time)
+                        && request.resource.data.endedAt == request.time
+                        && request.resource.data.get(myEndKey(), null) != null
+                        && request.resource.data.get('endUnanswered', null) == null)
+                      // they ignored my request for 7 days: close it myself
+                      || (resource.data.get('endRequestedBy', null) == me()
+                        && request.time > resource.data.endRequestedAt + duration.value(7, 'd')
+                        && request.resource.data.employmentEnded == true
+                        && request.resource.data.endedAt == request.time
+                        && request.resource.data.endUnanswered == true
+                        && request.resource.data.get(myEndKey(), null) == resource.data.get(myEndKey(), null))
                     );
+      // After a job ends, each side may add their side (under the other's reason) and ask an admin to review it.
+      allow update: if signedIn()
+                    && (resource.data.applicantUid == me() || resource.data.employerUid == me())
+                    && resource.data.get('employmentEnded', false) == true
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([myReplyKey(), myDisputeKey(), myDisputeKey() + 'At', 'updatedAt'])
+                    && optStr(request.resource.data.get(myReplyKey(), null), 300)
+                    && request.resource.data.get(myDisputeKey(), null) in [null, true]
+                    && (request.resource.data.get(myDisputeKey(), null) == resource.data.get(myDisputeKey(), null)
+                          || request.resource.data.get(myDisputeKey() + 'At', null) == request.time);
       // Applicants can withdraw.
       allow delete: if (signedIn() && resource.data.applicantUid == me()) || isAdmin();
     }

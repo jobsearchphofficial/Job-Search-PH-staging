@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793952096";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793958073";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -35,7 +35,7 @@ export const normPhone = (v) => { const m = String(v || "").replace(/\D/g, "").m
 // Fields an employer submits for the public post. Contact details are stored privately.
 // Everything an employer may change when editing a post (keep in sync with firestore.rules).
 const EDITABLE = ["title", "category", "categoryOther", "employerName", "city", "area", "address", "addressHidden", "workplace", "arrangement", "schedule", "employmentType",
-  "salaryMin", "salaryMax", "salaryPeriod", "hours", "daysOff", "daysOffPer", "openings", "startDate", "benefits", "reqExperience", "reqEducation", "reqList", "requirements", "description"];
+  "salaryMin", "salaryMax", "salaryPeriod", "hours", "daysOff", "daysOffPer", "openings", "startDate", "benefits", "reqExperience", "reqEducation", "reqList", "requirements", "description", "shiftType", "shiftNote", "daysPerWeek"];
 export const JOB_FIELDS = ["title", "category", "employerName", "city", "area", "employmentType", "salaryMin", "salaryMax", "salaryPeriod", "hours", "daysOff", "openings", "startDate", "description", "requirements"];
 export const PROFILE_FIELDS = {
   common: ["role", "fullName", "phone", "city", "messenger"],
@@ -396,13 +396,18 @@ export const store = {
       ? { type: "offer_accepted", title: `${who} accepted your offer`, body: `${who} accepted the ${a.jobTitle} job. You're all set!`, link: `#/applicants/${a.jobId}`, appId: a.id, jobId: a.jobId }
       : { type: "offer_declined", title: `${who} declined your offer`, body: `${who} declined the ${a.jobTitle} job. Your chat stays open for 48 hours.`, link: `#/applicants/${a.jobId}`, appId: a.id, jobId: a.jobId }).catch(() => {});
   },
-  // Ending employment needs both sides. kind: "request" | "cancel" | "decline" | "confirm"
-  async employment(a, kind) {
+  // Ending employment needs both sides. kind: "request" | "cancel" | "decline" | "confirm" | "close".
+  // Each side gives its own reason (endReasonEmployer / endReasonWorker). "close" ends it without the
+  // other side, allowed only 7 days after an unanswered request (they ghosted).
+  async employment(a, kind, reason = "") {
     const ref = F.doc(db, "applications", a.id); const me = uid(); const iAmEmployer = a.employerUid === me;
+    const mine = iAmEmployer ? "endReasonEmployer" : "endReasonWorker";
     const patch = { updatedAt: F.serverTimestamp() };
-    if (kind === "request") Object.assign(patch, { endRequestedBy: me, endRequestedAt: F.serverTimestamp() });
-    if (kind === "cancel" || kind === "decline") Object.assign(patch, { endRequestedBy: null });
-    if (kind === "confirm") Object.assign(patch, { employmentEnded: true, endedAt: F.serverTimestamp() });
+    if (kind === "request") Object.assign(patch, { endRequestedBy: me, endRequestedAt: F.serverTimestamp(), [mine]: reason });
+    if (kind === "cancel") Object.assign(patch, { endRequestedBy: null, [mine]: null });
+    if (kind === "decline") Object.assign(patch, { endRequestedBy: null });
+    if (kind === "confirm") Object.assign(patch, { employmentEnded: true, endedAt: F.serverTimestamp(), [mine]: reason });
+    if (kind === "close") Object.assign(patch, { employmentEnded: true, endedAt: F.serverTimestamp(), endUnanswered: true });
     await F.updateDoc(ref, patch);
     const other = iAmEmployer ? a.applicantUid : a.employerUid;
     const who = iAmEmployer ? (a.employerName || "The employer") : (a.applicant?.fullName || "Your worker");
@@ -410,8 +415,32 @@ export const store = {
       request: [`${who} says the job has ended`, `Please confirm that the ${a.jobTitle} job has ended.`],
       decline: ["Job hasn't ended yet", `${who} says the ${a.jobTitle} job is still going.`],
       confirm: ["Job ended", `${who} confirmed the ${a.jobTitle} job has ended.`],
+      close: ["Job marked as ended", `${who} marked the ${a.jobTitle} job as ended after 7 days with no reply. You can add your side in your job history.`],
     }[kind];
     if (msg) await this.notify(other, { type: `emp_${kind}`, title: msg[0], body: msg[1], link: iAmEmployer ? "#/applications" : `#/applicants/${a.jobId}`, appId: a.id, jobId: a.jobId }).catch(() => {});
+  },
+  // After a job ends, each side can add their side under the other's reason, and ask an admin to review it.
+  async endReply(a, text) {
+    const k = a.employerUid === uid() ? "replyEmployer" : "replyWorker";
+    await F.updateDoc(F.doc(db, "applications", a.id), { [k]: text, updatedAt: F.serverTimestamp() });
+  },
+  async endDispute(a) {
+    const k = a.employerUid === uid() ? "disputeEmployer" : "disputeWorker";
+    await F.updateDoc(F.doc(db, "applications", a.id), { [k]: true, [`${k}At`]: F.serverTimestamp(), updatedAt: F.serverTimestamp() });
+  },
+  // What workers said about an employer's past hires (built by the email robot). Signed-in users only.
+  async employerRecord(employerUid) { const d = await F.getDoc(F.doc(db, "employerRecord", employerUid)); return d.exists() ? d.data() : null; },
+  // Admin: open disputes, and the decision. hide = the reason is no longer shown in anyone's history.
+  // One entry per open request: by "worker" (about the employer's reason) or "employer" (about the worker's).
+  async listDisputes() {
+    const [w, e] = await Promise.all(["disputeWorker", "disputeEmployer"].map((k) => F.getDocs(F.query(F.collection(db, "applications"), F.where(k, "==", true)))));
+    return [...w.docs.map((d) => ({ a: norm(d), by: "worker" })), ...e.docs.map((d) => ({ a: norm(d), by: "employer" }))]
+      .filter(({ a, by }) => !(by === "worker" ? a.disputeWorkerDone : a.disputeEmployerDone));
+  },
+  // hide = take the disputed reason out of the history (the worker disputes the employer's reason, and the other way round).
+  async resolveDispute(id, by, hide) {
+    const patch = by === "worker" ? { disputeWorkerDone: true, ...(hide ? { hideEmployerReason: true } : {}) } : { disputeEmployerDone: true, ...(hide ? { hideWorkerReason: true } : {}) };
+    await F.updateDoc(F.doc(db, "applications", id), { ...patch, updatedAt: F.serverTimestamp() });
   },
   async withdraw(id) { await F.deleteDoc(F.doc(db, "applications", id)); },
 
@@ -601,7 +630,8 @@ export const store = {
       n(F.query(C("jobs"), F.where("status", "==", "pending"))), n(C("reports")), n(C("flags")),
       n(F.query(C("verifyRequests"), F.where("status", "==", "pending"))), n(C("support")), n(F.query(C("support"), F.where("status", "==", "done"))),
     ]);
-    return { pending, reports, flags, verify, support: supportAll == null ? null : Math.max(0, supportAll - (supportDone || 0)) };
+    const disputes = await this.listDisputes().then((l) => l.length).catch(() => null);
+    return { pending, reports, flags, verify, disputes, support: supportAll == null ? null : Math.max(0, supportAll - (supportDone || 0)) };
   },
   async dismissFlag(id) { await F.deleteDoc(F.doc(db, "flags", id)); },
   async dismissReport(id) { await F.deleteDoc(F.doc(db, "reports", id)); },

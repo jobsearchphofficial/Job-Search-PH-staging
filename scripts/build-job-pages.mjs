@@ -91,6 +91,8 @@ function conditions(j) {
   if (j.workplace === "household" && j.schedule) rows.push(["Schedule", j.schedule]);
   if (j.workplace) rows.push(["Workplace", j.workplace === "household" ? "Private household" : "Business"]);
   if (j.hours) rows.push(["Working hours", j.hours]);
+  if (j.shiftNote) rows.push([j.shiftType === "rotating" ? "Rotating schedule" : "Shifts", j.shiftNote]);
+  if (j.daysPerWeek) rows.push(["Days a week", `${j.daysPerWeek} day${Number(j.daysPerWeek) === 1 ? "" : "s"}`]);
   if (j.daysOff != null && j.daysOff !== "") rows.push(["Days off", `${j.daysOff} day${Number(j.daysOff) === 1 ? "" : "s"} per ${j.daysOffPer === "month" ? "month" : "week"}`]);
   if (j.openings > 1) rows.push(["Openings", `${j.openings} people`]);
   if (j.startDate) rows.push(["Start date", new Date(j.startDate + "T00:00:00").toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })]);

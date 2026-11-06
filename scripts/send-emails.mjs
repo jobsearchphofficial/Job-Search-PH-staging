@@ -168,7 +168,7 @@ async function postUpdates(since) {
       body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp?.fullName))}, we approved the changes to your post and it's visible to jobseekers again.</p>${postCard}${button(link(`#/job/${j.id}`, "email-post"), "View my post")}`;
     } else if (j.status === "rejected") {
       key = `job_${j.id}_rejected_${j.editedAt || j.createdAt}`; subject = `Your job post wasn't approved: ${j.title}`; title = "Your job post wasn't approved";
-      body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp?.fullName))}, we couldn't approve this post yet. Usually it's one of these: pay below the legal minimum, missing details about the work, or a contact that doesn't work.</p>${postCard}
+      body = `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp?.fullName))}, we couldn't approve this post yet.${j.rejectReason ? ` <strong>The reason:</strong> ${esc(j.rejectReason)}.` : " Usually it's one of these: pay below the legal minimum, missing details about the work, or a contact that doesn't work."}</p>${postCard}
         <p style="margin:12px 0 0 0;font-size:13px;line-height:20px;color:#6b7186;">Fix it and we'll check it again. Questions? Just reply to this email.</p>${button(link(`#/post/edit/${j.id}`, "email-post"), "Edit my post")}`;
     }
     if (!key || await seen(key)) continue;
@@ -254,7 +254,57 @@ async function scanChats(since) {
 }
 
 /* ---------- 3. Admin summary ---------- */
-async function adminSummary(since, pendingJobs, flagged = [], verifyReqs = []) {
+/* ---------- Work history ----------
+   When a job ends, each side gives a reason (applications.endReasonEmployer / endReasonWorker), may add
+   their side (replyWorker / replyEmployer) and may ask for a review (disputeWorker / disputeEmployer).
+   1. A worker's "Jobs on Job Search PH" (what employers said, with the worker's side) is copied onto every
+      application they've sent, as jsphHistory. Employers already read their applications, so only
+      employers they apply to see it.
+   2. An employer's record (what workers said, with the employer's side) goes to employerRecord/{uid},
+      which signed-in jobseekers see on that employer's job pages.
+   A reason an admin removed after a review (hideEmployerReason / hideWorkerReason) is left out. */
+const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((y) => [y, x[y]])) : x));
+async function employerLabel(a) {
+  const job = await getJob(a.jobId).catch(() => null);
+  const household = job ? job.workplace === "household" : a.employerName === "Private household";
+  return household ? `Private household, ${a.jobCity || job?.city || "Negros Occidental"}` : a.employerName || "Employer";
+}
+async function workHistory(since) {
+  const [changed, created] = await Promise.all([
+    query("applications", [["updatedAt", "GREATER_THAN", new Date(since)]]),
+    query("applications", [["createdAt", "GREATER_THAN", new Date(since)]]),
+  ]);
+  const workers = new Set([...changed, ...created].map((a) => a.applicantUid).filter(Boolean));
+  const employers = new Set(changed.filter((a) => a.employmentEnded).map((a) => a.employerUid).filter(Boolean));
+  for (const w of workers) {
+    const apps = await query("applications", [["applicantUid", "EQUAL", w]]);
+    const ended = apps.filter((a) => a.status === "hired" && a.employmentEnded).sort((x, y) => (y.endedAt || 0) - (x.endedAt || 0)).slice(0, 10);
+    const hist = [];
+    for (const a of ended) hist.push({
+      appId: a.id, title: a.jobTitle || "Job", employer: await employerLabel(a), from: a.acceptedAt || a.createdAt || 0, to: a.endedAt || 0,
+      reason: a.hideEmployerReason ? "" : a.endReasonEmployer || "",
+      unanswered: !a.hideEmployerReason && !!a.endUnanswered && a.endRequestedBy === a.employerUid,
+      reply: a.replyWorker || "", underReview: !!a.disputeWorker && !a.disputeWorkerDone,
+    });
+    for (const a of apps) {
+      if (a.applicantDeleted || canon(a.jsphHistory ?? null) === canon(hist)) continue;
+      await patch(`applications/${a.id}`, { jsphHistory: hist });
+    }
+  }
+  for (const e of employers) {
+    const ended = (await query("applications", [["employerUid", "EQUAL", e]])).filter((a) => a.status === "hired" && a.employmentEnded);
+    const items = ended.filter((a) => a.endReasonWorker && !a.hideWorkerReason).sort((x, y) => (y.endedAt || 0) - (x.endedAt || 0)).slice(0, 20)
+      .map((a) => ({ reason: a.endReasonWorker, unanswered: !!a.endUnanswered && a.endRequestedBy === a.applicantUid, reply: a.replyEmployer || "", to: a.endedAt || 0 }));
+    await patch(`employerRecord/${e}`, { hires: ended.length, items, updatedAt: new Date(now) });
+  }
+  // New review requests, for the admin summary email.
+  return changed.flatMap((a) => [
+    a.disputeWorker && !a.disputeWorkerDone && a.disputeWorkerAt > since ? { id: `${a.id}_w`, a, by: "worker" } : null,
+    a.disputeEmployer && !a.disputeEmployerDone && a.disputeEmployerAt > since ? { id: `${a.id}_e`, a, by: "employer" } : null,
+  ].filter(Boolean));
+}
+
+async function adminSummary(since, pendingJobs, flagged = [], verifyReqs = [], disputes = []) {
   const [support, reports] = await Promise.all([
     query("support", [["createdAt", "GREATER_THAN", new Date(since)]]).catch(() => []),
     query("reports", [["createdAt", "GREATER_THAN", new Date(since)]]).catch(() => []),
@@ -263,6 +313,7 @@ async function adminSummary(since, pendingJobs, flagged = [], verifyReqs = []) {
     ...pendingJobs.filter((j) => (j.editedAt || j.createdAt) > since).map((j) => ({ key: `admin_job_${j.id}_${j.editedAt || j.createdAt}`, kind: j.editedAt ? "Edited post to re-check" : "New post to review", text: `${j.title} · ${j.employerName} · ${j.city}`, href: link("#/admin/pending", "email-admin") })),
     ...support.map((s) => ({ key: `admin_support_${s.id}`, kind: `Support: ${s.topic || "message"}`, text: `${s.name || ""}: ${String(s.message || "").slice(0, 140)}`, href: link("#/admin/support", "email-admin") })),
     ...reports.map((r) => ({ key: `admin_report_${r.id}`, kind: `Report: ${r.reason}`, text: `Job ${r.jobId}${r.details ? ` · ${String(r.details).slice(0, 120)}` : ""}`, href: link(`#/job/${r.jobId}`, "email-admin") })),
+    ...disputes.map((d) => ({ key: `admin_dispute_${d.id}`, kind: "Work history review", text: `${d.by === "worker" ? d.a.applicant?.fullName || "A worker" : d.a.employerName || "An employer"} asked you to review how the ${d.a.jobTitle || ""} job ended.` })),
     ...verifyReqs.map((r) => ({ key: `admin_verify_${r.id}_${r.createdAt}`, kind: "ID check to review", text: `${r.idType || "ID"} · sent ${new Date(r.createdAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`, href: link("#/admin/verify", "email-admin") })),
     ...flagged.map((f) => ({ key: `admin_flag_${f.id}`, kind: `Chat flag: ${f.types.join(", ")}`, text: `${f.fromName} (${f.fromRole}) · ${f.jobTitle}: “${f.text.slice(0, 120)}”`, href: link("#/admin/flags", "email-admin") })),
   ];
@@ -331,7 +382,8 @@ async function main() {
     await expireVerify().catch((e) => console.error(`ID check cleanup failed: ${e.message}`));
     await purgeDeletedChats().catch((e) => console.error(`Deleted-account cleanup failed: ${e.message}`));
     const verifyReqs = capped ? [] : await verifyUpdates(since);
-    if (!capped) await adminSummary(since, pending, flagged, verifyReqs);
+    const disputes = await workHistory(since).catch((e) => { console.error(`Work history failed: ${e.message}`); return []; });
+    if (!capped) await adminSummary(since, pending, flagged, verifyReqs, disputes);
     if (!capped) await employerReminders();
   } catch (e) {
     if (e.status === 429 || e.status === 403) { console.error(`Stopping: Resend limit or key problem. ${e.message}`); process.exitCode = 1; return; }

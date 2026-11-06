@@ -1,16 +1,29 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793952096";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793952096";
-import { fitScore, rankApplicants } from "./match.js?v=1793952096";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793952096";
-import { initPixel, track } from "./pixel.js?v=1793952096";
-import { IDENTITY, employersHtml } from "./pages.js?v=1793952096";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793958073";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793958073";
+import { fitScore, rankApplicants } from "./match.js?v=1793958073";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793958073";
+import { initPixel, track } from "./pixel.js?v=1793958073";
+import { IDENTITY, employersHtml } from "./pages.js?v=1793958073";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
-  "Kasambahay / Househelper", "Yaya / Nanny", "Caregiver", "Cook", "Driver", "Laundry",
+  "Kasambahay / Househelper", "Yaya / Nanny", "All-around helper", "Caregiver", "Cook", "Driver", "Laundry",
   "Gardener / Maintenance", "Food service", "Sales / Retail", "Delivery / Rider",
   "Construction / Skilled trade", "Security", "Office / Admin", "Other",
 ];
+// Less common business job types. They sit behind a "More job types" button so the main list stays short.
+const MORE_TYPES = [
+  "Hospitality / Hotel", "Healthcare / Clinic", "Cashier", "Teacher / Tutor", "Beauty / Salon",
+  "Mechanic / Technician", "Warehouse / Factory", "Farm / Agriculture", "Accounting / Bookkeeping", "IT / Tech",
+];
+// Every job type, for filters and search. "Other" stays last.
+const ALL_CATEGORIES = CATEGORIES.filter((c) => c !== "Other").concat(MORE_TYPES, ["Other"]);
+const moreTypes = (inner, open = false) => `<button type="button" class="more-toggle" aria-expanded="${open}">${open ? "Fewer job types" : "More job types"}</button><div class="more-types" ${open ? "" : "hidden"}>${inner}</div>`;
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".more-toggle"); if (!b) return;
+  const box = b.nextElementSibling; box.hidden = !box.hidden;
+  b.setAttribute("aria-expanded", String(!box.hidden)); b.textContent = box.hidden ? "More job types" : "Fewer job types";
+});
 const TYPES = ["Live-in", "Stay-out", "Full-time", "Part-time", "Flexible schedule", "Project-based"];
 // Negros Occidental only for now: 13 cities and 19 municipalities.
 const CITIES = [
@@ -72,8 +85,11 @@ const WAGES = {
 const CITY_REGION = { "Dumaguete City": "R7" };
 const WORK_DAYS = 26; // days per month used to convert daily and monthly pay
 // Jobs that only exist in private homes; businesses don't see these.
-const HOUSEHOLD_ONLY = ["Kasambahay / Househelper", "Yaya / Nanny"];
-const HOUSEHOLD_CATS = ["Kasambahay / Househelper", "Yaya / Nanny", "Caregiver", "Cook", "Driver", "Laundry", "Gardener / Maintenance"];
+const HOUSEHOLD_ONLY = ["Kasambahay / Househelper", "Yaya / Nanny", "All-around helper"];
+// Households never show a family name in public. Older posts may still have one saved, so the board hides it too.
+const PRIVATE_HOUSEHOLD = "Private household";
+const publicEmployer = (j) => (j.workplace === "household" ? PRIVATE_HOUSEHOLD : j.employerName || "Employer");
+const HOUSEHOLD_CATS = ["Kasambahay / Househelper", "Yaya / Nanny", "All-around helper", "Caregiver", "Cook", "Driver", "Laundry", "Gardener / Maintenance"];
 const BENEFITS = ["SSS", "PhilHealth", "Pag-IBIG", "13th month pay", "Free meals", "Free lodging", "Paid leave", "Overtime pay", "Transport allowance", "Uniform provided"];
 const LEGAL_HOUSEHOLD = ["SSS", "PhilHealth", "Pag-IBIG", "13th month pay"];
 const CITY_COORDS = {
@@ -138,6 +154,8 @@ function conditionsHtml(j) {
   if (!j.address && j.addressHidden) rows.push([ICON.pin, "Address", `<span data-private-address>${esc([j.area, j.city].filter(Boolean).join(", "))} · <span class="muted">exact address shared with the person hired</span></span>`]);
   if (j.address) { const q = encodeURIComponent([j.address, j.area, j.city, "Negros Occidental"].filter(Boolean).join(", ")); rows.push([ICON.pin, "Address", `${esc(j.address)}${j.area ? `, ${esc(j.area)}` : ""}, ${esc(j.city)} · <a href="https://www.google.com/maps/search/?api=1&amp;query=${q}" target="_blank" rel="noopener">Open map</a>`]); }
   if (j.hours) rows.push([ICON.clock, "Working hours", esc(j.hours)]);
+  if (j.shiftNote) rows.push([ICON.clock, j.shiftType === "rotating" ? "Rotating schedule" : "Shifts", esc(j.shiftNote)]);
+  if (j.daysPerWeek) rows.push([ICON.cal, "Days a week", `${esc(j.daysPerWeek)} day${Number(j.daysPerWeek) === 1 ? "" : "s"}`]);
   if (j.daysOff != null && j.daysOff !== "") rows.push([ICON.cal, "Days off", `${esc(j.daysOff)} day${Number(j.daysOff) === 1 ? "" : "s"} per ${j.daysOffPer === "month" ? "month" : "week"}`]);
   if (j.openings > 1) rows.push([ICON.people, "Openings", `${esc(j.openings)} people`]);
   if (j.startDate) rows.push([ICON.cal, "Start date", new Date(j.startDate + "T00:00:00").toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })]);
@@ -200,6 +218,8 @@ function verifiedBadge(uid, { short = false } = {}) {
 }
 const ID_TYPES = ["PhilSys National ID", "Driver's license", "Passport", "UMID", "SSS ID", "PRC ID", "Postal ID", "Voter's ID", "PhilHealth ID", "Senior citizen ID", "Other government ID"];
 const VERIFY_METHODS = ["Talked on the phone", "Checked their Facebook", "Saw business permit / DTI", "Met in person", "Known to us"];
+// Why a post wasn't approved. The employer sees the reason in My posts, the notification and the email.
+const REJECT_REASONS = ["Pay is too low", "Not enough detail about the work", "The contact details don't work", "Asks applicants for fees or deposits", "Looks like a scam or fake job", "Same job is already posted", "Not a real job opening"];
 const INFO_ASKS = ["Your Facebook profile or page link", "Your business permit or DTI number", "The exact work location", "More details about the job", "Check the pay (it looks off)"];
 
 // Things worth a second look before approving. Each: [level "bad"|"warn", text]
@@ -227,7 +247,7 @@ function riskFlags(j, owner, ctx) {
   const same = ph.length === 10 ? ctx.users.filter((u) => u.id !== owner.id && digits(u.phone).slice(-10) === ph) : [];
   if (same.length) f.push(["bad", `Same phone as ${same.length} other account${same.length === 1 ? "" : "s"}: ${same.slice(0, 3).map((u) => esc(u.fullName || u.id)).join(", ")}`]);
   if (ctx.bans.some((b) => b.id === owner.id)) f.push(["bad", "This account is banned"]);
-  if (owner.companyName && j.employerName && owner.companyName.trim().toLowerCase() !== j.employerName.trim().toLowerCase()) f.push(["warn", `Post name “${esc(j.employerName)}” differs from profile “${esc(owner.companyName)}”`]);
+  if (j.workplace !== "household" && owner.companyName && j.employerName && owner.companyName.trim().toLowerCase() !== j.employerName.trim().toLowerCase()) f.push(["warn", `Post name “${esc(j.employerName)}” differs from profile “${esc(owner.companyName)}”`]);
   return f;
 }
 const fbHref = (v) => { const u = safeUrl(v); try { return u && /(^|\.)(facebook\.com|fb\.com|fb\.me|m\.me)$/i.test(new URL(u).hostname) ? u : null; } catch { return null; } };
@@ -975,7 +995,7 @@ async function viewList() {
         <div class="toolbar">
           <span id="count"></span>
           <div class="toolbar-filters">
-            ${msel("category", "Job", [["", "All jobs"], ...CATEGORIES.map((c) => [c, c])], filters.category)}
+            ${msel("category", "Job", [["", "All jobs"], ...ALL_CATEGORIES.map((c) => [c, c])], filters.category)}
             ${msel("type", "Type", [["", "Any type"], ...TYPES.map((t) => [t, t])], filters.type)}
             ${msel("minPay", "Pay", PAY_STEPS, filters.minPay)}
             ${msel("sort", "Sort", [["new", "Newest"], ["pay", "Highest pay"], ["near", "Nearest"]], filters.sort)}
@@ -1015,7 +1035,7 @@ async function viewList() {
       .filter((j) => !filters.type || j.employmentType === filters.type || j.schedule === filters.type)
       .filter((j) => !(Number(filters.minPay) > PAY_MIN) || monthlyEquivalent(j) >= Number(filters.minPay))
       .filter((j) => !where || [j.city, j.area].join(" ").toLowerCase().includes(where.replace(/ city$/, "")))
-      .filter((j) => !q || [j.title, j.category, j.employerName, j.description, (j.benefits || []).join(" ")].join(" ").toLowerCase().includes(q));
+      .filter((j) => !q || [j.title, j.category, publicEmployer(j), j.description, (j.benefits || []).join(" ")].join(" ").toLowerCase().includes(q));
     const by = {
       new: (a, b) => (b.featured - a.featured) || (b.approvedAt || b.createdAt) - (a.approvedAt || a.createdAt),
       pay: (a, b) => monthlyEquivalent(b) - monthlyEquivalent(a),
@@ -1181,7 +1201,7 @@ function card(j, applied, km) {
   <a class="card jrow ${j.featured ? "card-featured" : ""}" href="/jobs/${encodeURIComponent(j.id)}/">
     <div class="jrow-main">
       <div class="jrow-title"><h3>${esc(j.title)}</h3>${applied ? `<span class="jtag-applied">Applied</span>` : isNew ? `<span class="jtag-new">New</span>` : ""}${j.featured ? `<span class="jtag-feat">Featured</span>` : ""}</div>
-      <p class="jrow-emp">${esc(j.employerName)} ${verifiedBadge(j.ownerUid, { short: true })}${founderBadge(j.ownerUid, "employer", { short: true })}</p>
+      <p class="jrow-emp">${esc(publicEmployer(j))} ${verifiedBadge(j.ownerUid, { short: true })}${founderBadge(j.ownerUid, "employer", { short: true })}</p>
       <p class="jrow-loc">${ICON.pin}<span>${j.area ? `${esc(j.area)}, ` : ""}${esc(j.city)}</span>${km != null ? `<span class="jrow-km">${km < 1 ? "under 1" : Math.round(km)} km away</span>` : ""}</p>
       <ul class="jrow-tags">${tags.map((t) => `<li class="t-kind">${esc(t)}</li>`).join("")}${shown.map((b) => `<li>${esc(b)}</li>`).join("")}${more > 0 ? `<li class="t-more">+${more} more</li>` : ""}</ul>
     </div>
@@ -1208,7 +1228,7 @@ async function viewJob(id) {
       <div class="job-main">
         ${!isLive(j) ? `<p class="notice">This post is not public. Status: ${statusBadge(j)}</p>` : ""}
         <h1>${esc(j.title)}</h1>
-        <p class="employer">${esc(j.employerName)} ${verifiedBadge(j.ownerUid)}${founderBadge(j.ownerUid, "employer")}</p>
+        <p class="employer">${esc(publicEmployer(j))} ${verifiedBadge(j.ownerUid)}${founderBadge(j.ownerUid, "employer")}</p>
         <p class="loc">${ICON.pin}<span>${j.area ? `${esc(j.area)}, ` : ""}${esc(j.city)}</span></p>
         <ul class="meta"><li>${esc(j.employmentType)}</li>${j.workplace === "household" && j.schedule ? `<li>${esc(j.schedule)}</li>` : ""}<li>${esc(j.category === "Other" && j.categoryOther ? j.categoryOther : j.category)}</li><li>Posted ${ago(j.approvedAt || j.createdAt)}</li></ul>
         <div class="pay-box"><span class="salary salary-lg">${salaryText(j)}</span>${(() => { const m = j.workplace && j.salaryMin ? minimumPay(j.city, j.workplace, j.salaryPeriod) : null; return m && j.salaryMin >= m.amount ? `<span class="minok">${ICON.check}Meets the legal minimum wage</span>` : ""; })()}</div>
@@ -1218,6 +1238,7 @@ async function viewJob(id) {
       </div>
       <aside class="job-side">
         <div class="panel" id="apply-panel">${SK.panel()}</div>
+        <div class="panel emp-record" id="emp-record" hidden></div>
         <div class="panel panel-warn">
           <strong>Never pay to get a job.</strong>
           <p>If the employer asks for a fee, deposit or your ID before an interview, stop and report the post.</p>
@@ -1251,6 +1272,7 @@ async function viewJob(id) {
     catch (err) { toast(err.code === "limit-reached" ? limitMsg.reports : "Could not send report. Try again."); }
   });
   renderApplyPanel(j, isOwner);
+  renderEmployerRecord(j);
   if (j.addressHidden && (isOwner || getAuthState().isAdmin)) store.getContact(j.id).then((c) => {
     const el = app.querySelector("[data-private-address]"); if (!el || !c?.address) return;
     const q = encodeURIComponent([c.address, j.area, j.city, "Negros Occidental"].filter(Boolean).join(", "));
@@ -1493,11 +1515,12 @@ function viewEmployerSetup({ user, p, su, knownName }) {
       ${choice("kind", "household", "A household", { icon: ICON.home, sub: "Kasambahay, yaya, family driver, cook…", on: a.kind === "household" })}
       ${choice("kind", "business", "A business", { icon: ICON.people, sub: "Store, restaurant, office, site…", on: a.kind === "business" })}</div>`, ok: () => !!a.kind }),
     name: () => ({ q: "What's your name?", hint: "Applicants see this when you message them.", body: nameFields(a), ok: () => !nameError(a.firstName, a.middleName, a.lastName) }),
-    company: () => ({ q: a.kind === "business" ? "What's the business called?" : "What should we call your household?", hint: a.kind === "business" ? "As your customers know it, for example Inasal Express." : "For example Reyes Family. It shows on your job posts.",
+    company: () => ({ q: a.kind === "business" ? "What's the business called?" : "What should we call your household?", hint: a.kind === "business" ? "As your customers know it, for example Inasal Express." : "For example Reyes Family. It stays private: your posts show \"Private household\" with your barangay.",
       body: `<input class="ob-input" name="companyName" maxlength="100" autocomplete="organization" placeholder="${a.kind === "business" ? "Business name" : "e.g. Reyes Family"}" value="${esc(a.companyName)}">`, ok: () => a.companyName.trim().length >= 2 }),
     city: () => ({ q: "Where are you?", hint: "Jobseekers look for work near them.", body: cityPicker("city", a.city), ok: () => !!a.city }),
     phone: () => ({ q: "What's your mobile number?", hint: "Only applicants you choose and our team can see it. We never post it publicly.", body: `<input class="ob-input" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="0917 123 4567" value="${esc(a.phone)}">`, ok: () => !!normPhone(a.phone) }),
     needs: () => ({ q: "What role are you hiring for?", hint: "Pick all that apply. Your first pick starts your first job post.", body: `<div class="ob-grid ob-grid-3">${needList().map((c) => choice("needs", c, c, { multi: true, on: a.needs.includes(c) })).join("")}${choice("needs", "Other", "Other", { multi: true, on: a.needs.includes("Other") })}</div>
+      ${a.kind === "business" ? moreTypes(`<div class="ob-grid ob-grid-3">${MORE_TYPES.map((c) => choice("needs", c, c, { multi: true, on: a.needs.includes(c) })).join("")}</div>`, a.needs.some((c) => MORE_TYPES.includes(c))) : ""}
       <div class="ob-other" id="ob-other" ${a.needs.includes("Other") ? "" : "hidden"}><label for="ob-other-in">What role?</label>
         <div class="ac"><input class="ob-input" id="ob-other-in" name="needsOther" maxlength="40" autocomplete="off" placeholder="Start typing, e.g. Electrician" value="${esc(a.needsOther)}" role="combobox" aria-expanded="false" aria-controls="ob-other-list" aria-autocomplete="list"><ul class="ac-list" id="ob-other-list" role="listbox" hidden></ul></div></div>`,
       ok: () => a.needs.length > 0 && (!a.needs.includes("Other") || a.needsOther.trim().length >= 2), skip: "Not sure yet" }),
@@ -1653,7 +1676,7 @@ function viewProfile(focus) {
       ${role === "jobseeker" ? `
       <fieldset>
         <legend>Work you're looking for</legend>
-        <div><span class="label">Jobs you want (up to 5)</span>${chips("jobCategories", CATEGORIES, p.jobCategories)}
+        <div><span class="label">Jobs you want (up to 5)</span>${chips("jobCategories", CATEGORIES.filter((c) => c !== "Other"), p.jobCategories)}${moreTypes(chips("jobCategories", MORE_TYPES.concat(["Other"]), p.jobCategories), (p.jobCategories || []).some((c) => MORE_TYPES.includes(c) || c === "Other"))}
           <label id="jc-other" ${(p.jobCategories || []).includes("Other") ? "" : "hidden"}>What other job are you looking for?<input name="jobCategoryOther" maxlength="40" placeholder="e.g. Tutor, Massage therapist, Farm worker" value="${esc(p.jobCategoryOther || "")}"><span class="hint">This helps us add new job types.</span></label></div>
         <div><span class="label">Preferred arrangement <span class="muted small">(pick any)</span></span>${chips("jobTypes", TYPES, p.jobTypes)}</div>
         <div><span class="label">Years of experience</span>${choicePills("experienceYears", EXPERIENCE_BUCKETS, expBucket(p.experienceYears))}</div>
@@ -1949,15 +1972,42 @@ function viewProfile(focus) {
 }
 
 /* ---------------- Post a job ---------------- */
+// Starter text for the job description, one per job type. "___" marks a blank the employer must fill in.
+const DESC_TEMPLATES = {
+  "Kasambahay / Househelper": "Household of ___ people in ___.\nDuties: cleaning the house, laundry and ironing, and ___.\nThe day starts at ___. Day off: ___.",
+  "Yaya / Nanny": "Looking after ___ child(ren), aged ___.\nDuties: feeding, bathing, playtime and ___.\nOther help in the house: ___.",
+  "All-around helper": "Household of ___ people.\nDuties: cleaning, cooking, laundry, errands and ___.\nThe day starts at ___. Day off: ___.",
+  "Caregiver": "Caring for ___ (age ___).\nNeeds help with ___.\nMedical needs: ___.",
+  "Cook": "Cooking ___ meals a day for ___ people.\nUsual dishes: ___.\nAlso: grocery shopping and keeping the kitchen clean.",
+  "Driver": "Driving for ___ (family errands, school runs or business).\nVehicle: ___.\nUsual trips: ___.",
+  "Laundry": "Washing and ironing for ___ people, ___ days a week.\nWashing machine: ___.",
+  "Gardener / Maintenance": "Garden and grounds of about ___.\nDuties: ___.",
+  "Food service": "Role: ___ at our ___ in ___.\nDuties: taking orders, serving, cleaning and ___.\nShift: ___.",
+  "Sales / Retail": "Selling ___ at our store in ___.\nDuties: helping customers, stocking shelves, handling cash and ___.",
+  "Cashier": "Cashier at our ___ in ___.\nDuties: taking payments, issuing receipts, counting the cash at day's end and ___.",
+  "Delivery / Rider": "Delivering ___ around ___.\nMotorcycle: ___ (provided or your own). Gas allowance: ___.",
+  "Construction / Skilled trade": "Work: ___ at ___.\nHow long the project runs: ___.\nTools provided: ___.",
+  "Security": "Guarding ___ in ___.\nShift: ___.\nLicence needed: ___.",
+  "Office / Admin": "Role: ___ at our office in ___.\nDuties: ___.\nSoftware you'll use: ___.",
+  "Hospitality / Hotel": "Role: ___ at our ___ in ___.\nDuties: ___.\nShift: ___. Meals or staff housing: ___.",
+  "Healthcare / Clinic": "Role: ___ at our clinic in ___.\nDuties: ___.\nLicence needed: ___.",
+  "Teacher / Tutor": "Teaching ___ (subject) to ___ (grade or age).\nSchedule: ___. Online or in person: ___.",
+};
+const DESC_GENERIC = "What the job is: ___.\nMain duties: ___.\nWho you'll work with: ___.\nA normal day: ___.";
 const REQ_EXPERIENCE = [[0, "No experience needed"], [1, "1+ year"], [2, "2+ years"], [3, "3+ years"], [5, "5+ years"]];
 const REQ_EDUCATION = ["Any", "Elementary", "High school", "Senior high school", "Vocational / TESDA", "College"];
 const REQ_SKILLS = {
-  household: ["Can cook", "Laundry & ironing", "Childcare experience", "Elderly care experience", "Professional driver's license", "Pet care", "Gardening"],
-  business: ["Customer service", "Cash handling", "Food handling", "Professional driver's license", "Own motorcycle", "Computer skills", "Heavy lifting"],
-  common: ["Non-smoker", "With references", "NBI or barangay clearance", "Medical certificate", "Can start immediately", "Speaks Hiligaynon", "Speaks English"],
+  household: ["Can cook", "Laundry & ironing", "Childcare experience", "Elderly care experience", "Professional driver's license", "Pet care", "Gardening", "TESDA NC II"],
+  business: ["Customer service", "Cash handling", "Food handling", "Professional driver's license", "Own motorcycle", "Computer skills", "Heavy lifting", "TESDA NC II", "PRC license", "Food handler's certificate"],
+  // Languages of Negros Occidental: mostly Hiligaynon; Cebuano in the towns facing Cebu; Filipino and English widely used.
+  common: ["Non-smoker", "With references", "NBI or barangay clearance", "Medical certificate", "Can start immediately", "Speaks Hiligaynon", "Speaks Cebuano", "Speaks Filipino", "Speaks English"],
 };
 // Requirement chips that only make sense for some categories.
-const REQ_ONLY_FOR = { "Professional driver's license": ["Driver", "Delivery / Rider", "Other"], "Own motorcycle": ["Delivery / Rider", "Other"] };
+const REQ_ONLY_FOR = {
+  "Professional driver's license": ["Driver", "Delivery / Rider", "Warehouse / Factory", "Other"], "Own motorcycle": ["Delivery / Rider", "Other"],
+  "PRC license": ["Healthcare / Clinic", "Teacher / Tutor", "Accounting / Bookkeeping", "Other"],
+  "Food handler's certificate": ["Food service", "Cook", "Hospitality / Hotel", "Cashier", "Other"],
+};
 const reqFits = (skill, cat) => !REQ_ONLY_FOR[skill] || !cat || REQ_ONLY_FOR[skill].includes(cat);
 // Suggested job titles, filled in when the title box is still empty.
 const TITLE_FOR = {
@@ -2201,7 +2251,8 @@ async function viewPost(editId = null) {
             <label><input type="radio" name="workplace" value="household" required><span>${ICON.home}<strong>Private household</strong><small>Kasambahay, yaya, family driver, cook…</small></span></label>
             <label><input type="radio" name="workplace" value="business"><span>${ICON.people}<strong>Business</strong><small>Store, restaurant, office, site…</small></span></label>
           </div>
-          <label class="fld">Employer or household name *<input name="employerName" required maxlength="80" placeholder="e.g. Reyes Family" value="${esc(profile.companyName || "")}"></label>
+          <label class="fld" id="emp-name-field">Business name *<input name="employerName" maxlength="80" placeholder="e.g. Soffee Café" value="${esc(profile.companyName || "")}"></label>
+          <p class="hint" id="hh-private" hidden>Your post shows as <strong>Private household</strong> with your barangay and city. Your family name is never shown in public.</p>
         </section>
 
         <section class="pcard" data-needs-workplace>
@@ -2242,16 +2293,20 @@ async function viewPost(editId = null) {
 
         <section class="pcard">
           <header><span class="num">5</span><div><h2>Work conditions</h2></div></header>
-          <div class="fld hours-fld"><span class="label">Working hours</span>
+          <div class="fld hours-fld"><span class="label">Work pattern</span>
+            ${radioPills("shiftType", [["fixed", "Same hours every day"], ["shifts", "Shifts"], ["rotating", "Rotating schedule"]], "fixed")}
+            <label class="fld" id="shift-note-fld" hidden>Describe the shifts *<input name="shiftNote" maxlength="100" placeholder="e.g. 6 AM–2 PM or 2 PM–10 PM, changes weekly"></label>
+            <span class="label">Working hours</span>
             <div class="wh">
-              <div class="wh-part"><span class="wh-cap">Starts</span><div class="wh-step"><button type="button" data-wh="hStart" data-d="-1" aria-label="Earlier">−</button><output id="wh-start">8:00 AM</output><button type="button" data-wh="hStart" data-d="1" aria-label="Later">+</button></div></div>
+              <div class="wh-part" id="wh-start-part"><span class="wh-cap">Starts</span><div class="wh-step"><button type="button" data-wh="hStart" data-d="-1" aria-label="Earlier">−</button><output id="wh-start">8:00 AM</output><button type="button" data-wh="hStart" data-d="1" aria-label="Later">+</button></div></div>
               <div class="wh-part"><span class="wh-cap">Hours a day</span><div class="wh-step"><button type="button" data-wh="hLen" data-d="-1" aria-label="Fewer hours">−</button><output id="wh-len">8</output><button type="button" data-wh="hLen" data-d="1" aria-label="More hours">+</button></div></div>
               <div class="wh-sum" aria-live="polite"><strong id="wh-range"></strong><span id="wh-tag" class="h-tag ok"></span></div>
             </div>
             <input type="hidden" name="hStart" value="8"><input type="hidden" name="hLen" value="8"><input type="hidden" name="hours">
           </div>
           <div class="row row-3">
-            <div class="fld"><span class="label">Days off per month</span>${stepper("daysOff", 4, 2, 15)}</div>
+            <div class="fld" id="daysoff-fld"><span class="label">Days off per month</span>${stepper("daysOff", 4, 2, 15)}</div>
+            <div class="fld" id="dpw-fld" hidden><span class="label">Days a week</span>${stepper("daysPerWeek", 6, 1, 7)}</div>
             <div class="fld"><span class="label">Openings (max 3)</span>${stepper("openings", 1, 1, 3)}</div>
             <label class="fld">Start date (optional)<input name="startDate" type="date"></label>
           </div>
@@ -2272,6 +2327,7 @@ async function viewPost(editId = null) {
         <section class="pcard">
           <header><span class="num">7</span><div><h2>Description</h2></div></header>
           <label class="fld">About the job *<textarea name="description" required minlength="30" maxlength="4000" rows="6" placeholder="Duties, household size, what a normal day looks like…"></textarea></label>
+          <button type="button" class="link-btn" id="desc-tpl">Start from an example</button>
         </section>
 
         <section class="pcard">
@@ -2309,10 +2365,12 @@ async function viewPost(editId = null) {
     const wp = workplace() || "household";
     const cats = wp === "household" ? HOUSEHOLD_CATS.concat(["Other"]) : CATEGORIES.filter((c) => !HOUSEHOLD_ONLY.includes(c));
     const curCat = val("category");
-    $("#cat-pills").innerHTML = cats.map((c) => `<label class="pill"><input type="radio" name="category" value="${esc(c)}" required ${curCat === c ? "checked" : ""}><span>${esc(c)}</span></label>`).join("");
+    const pill = (c) => `<label class="pill"><input type="radio" name="category" value="${esc(c)}" required ${curCat === c ? "checked" : ""}><span>${esc(c)}</span></label>`;
+    $("#cat-pills").innerHTML = cats.map(pill).join("") + (wp === "business" ? moreTypes(MORE_TYPES.map(pill).join(""), MORE_TYPES.includes(curCat)) : "");
     const curSched = val("schedule");
     $("#sched-pills").innerHTML = radioPills("schedule", SCHEDULES[wp].map((s) => [s, s]), SCHEDULES[wp].includes(curSched) ? curSched : "Full-time");
     $("#arr-field").hidden = wp !== "household";
+    $("#emp-name-field").hidden = wp === "household"; f.employerName.required = wp === "business"; $("#hh-private").hidden = wp !== "household";
     $("#addr-field").hidden = workplace() !== "business"; f.address.required = workplace() === "business";
     $("#loc-hint").textContent = workplace() === "business" ? "Businesses must show their full address so applicants know where they'll work." : "For households, the barangay is enough. Don't include house numbers.";
     f.querySelectorAll("[name=arrangement]").forEach((r) => (r.required = wp === "household"));
@@ -2330,13 +2388,15 @@ async function viewPost(editId = null) {
     const arrangement = wp === "household" ? val("arrangement") : "";
     const schedule = val("schedule");
     return {
-      title: g("title"), category: val("category"), categoryOther: val("category") === "Other" ? g("categoryOther").replace(/\s+/g, " ").replace(/^./, (c) => c.toUpperCase()) : "", employerName: g("employerName"), city: g("city"), area: g("area"),
+      title: g("title"), category: val("category"), categoryOther: val("category") === "Other" ? g("categoryOther").replace(/\s+/g, " ").replace(/^./, (c) => c.toUpperCase()) : "", employerName: wp === "household" ? PRIVATE_HOUSEHOLD : g("employerName"), city: g("city"), area: g("area"),
       address: wp === "business" ? g("address") : "",
       workplace: wp, arrangement, schedule,
       employmentType: wp === "household" ? (arrangement || "Live-in") : (schedule || "Full-time"),
       salaryMin: g("salaryMin") ? Number(g("salaryMin")) : null, salaryMax: g("salaryMax") && (val("salaryPeriod") || "month") === "month" ? Number(g("salaryMax")) : null,
       salaryPeriod: val("salaryPeriod") || "month", hours: g("hours"),
-      daysOff: g("daysOff") === "" ? null : Math.max(2, Math.min(15, Number(g("daysOff")))), daysOffPer: "month",
+      daysOff: wp === "business" || g("daysOff") === "" ? null : Math.max(2, Math.min(15, Number(g("daysOff")))), daysOffPer: "month",
+      daysPerWeek: wp === "business" ? Math.max(1, Math.min(7, Number(g("daysPerWeek")) || 6)) : null,
+      shiftType: f.hours.value ? val("shiftType") || "fixed" : "", shiftNote: f.hours.value && (val("shiftType") || "fixed") !== "fixed" ? g("shiftNote") : "",
       openings: Math.max(1, Math.min(3, Number(g("openings")) || 1)), startDate: g("startDate"),
       benefits: [...f.querySelectorAll("[name=benefits]:checked")].map((i) => i.value),
       reqExperience: Number(val("reqExperience") || 0), reqEducation: val("reqEducation") || "Any",
@@ -2345,10 +2405,18 @@ async function viewPost(editId = null) {
     };
   };
   const counter = document.createElement("p"); counter.className = "hint"; f.description.after(counter);
+  $("#desc-tpl").addEventListener("click", async () => {
+    const tpl = DESC_TEMPLATES[val("category")] || DESC_GENERIC;
+    if (f.description.value.trim() && !(await showDialog({ title: "Replace your description?", body: "The example replaces what you've written so far.", actions: [{ label: "Keep mine", value: false }, { label: "Use the example", value: true, primary: true }] }))) return;
+    f.description.value = tpl; f.description.dispatchEvent(new Event("input", { bubbles: true }));
+    f.description.focus(); const i = tpl.indexOf("___"); if (i >= 0) f.description.setSelectionRange(i, i + 3);
+  });
   const ph = { messenger: "Messenger username or m.me link", phone: "e.g. 0917 123 4567", email: "you@example.com" };
 
   const hoursText = () => {
     const len = Number(f.hLen.value) || 8, st = Number(f.hStart.value) || 8;
+    const pattern = val("shiftType") || "fixed";
+    if (pattern !== "fixed") return `${len} hours a day, ${pattern === "shifts" ? "in shifts" : "rotating schedule"}`;
     const end = st + len + (len > 5 ? 1 : 0);
     return `${len} hours a day, ${clock(st)}–${clock(end)}${len > 5 ? " (1-hr break)" : ""}`;
   };
@@ -2360,10 +2428,14 @@ async function viewPost(editId = null) {
     $(".pay-row").classList.toggle("single", single);
     const liveIn = workplace() === "household" && val("arrangement") !== "Stay-out"; // live-in, or not chosen yet
     $(".hours-fld").hidden = liveIn;
+    { const varied = (val("shiftType") || "fixed") !== "fixed";
+      $("#shift-note-fld").hidden = liveIn || !varied; f.shiftNote.required = !liveIn && varied;
+      $("#wh-start-part").hidden = varied;
+      $("#daysoff-fld").hidden = workplace() === "business"; $("#dpw-fld").hidden = workplace() !== "business"; }
     f.hours.value = liveIn ? "" : hoursText();
     { const len = Number(f.hLen.value) || 8, st = Number(f.hStart.value) || 8;
       $("#wh-start").textContent = clock(st); $("#wh-len").textContent = `${len} hrs`;
-      $("#wh-range").textContent = `${clock(st)} – ${clock(st + len + (len > 5 ? 1 : 0))}${len > 5 ? " · incl. 1-hr break" : ""}`;
+      $("#wh-range").textContent = (val("shiftType") || "fixed") !== "fixed" ? `${len} hours a day` : `${clock(st)} – ${clock(st + len + (len > 5 ? 1 : 0))}${len > 5 ? " · incl. 1-hr break" : ""}`;
       const tag = $("#wh-tag"); tag.className = `h-tag ${len <= 8 ? "ok" : len === 10 ? "warn" : "mid"}`;
       tag.textContent = len < 8 ? "Short day" : len === 8 ? "Recommended" : len === 9 ? "Long day" : "Discouraged: 10 hrs is the max"; }
     const n = f.description.value.trim().length; counter.textContent = n < 30 ? `${n}/30 characters minimum` : `${n} characters`;
@@ -2438,12 +2510,14 @@ async function viewPost(editId = null) {
     touchedBenefits = true;
     setRadio("workplace", j.workplace || "household"); renderOptions();
     setRadio("category", j.category); renderOptions();
+    setRadio("shiftType", j.shiftType || "fixed"); if (j.shiftNote) f.shiftNote.value = j.shiftNote; if (j.daysPerWeek) f.daysPerWeek.value = j.daysPerWeek;
     setRadio("arrangement", j.arrangement); setRadio("schedule", j.schedule); setRadio("salaryPeriod", j.salaryPeriod || "month");
     setRadio("reqExperience", j.reqExperience || 0); setRadio("reqEducation", j.reqEducation || "Any"); if (contactList(c).length) setContacts(contactList(c));
     ["title", "categoryOther", "employerName", "city", "area", "salaryMin", "salaryMax", "startDate", "requirements", "description", "daysOff", "openings"].forEach((k) => setVal(k, j[k]));
     setVal("address", j.addressHidden ? c.address : j.address); if (f.hideAddress) f.hideAddress.checked = !!j.addressHidden;
     f.querySelectorAll("[name=benefits]").forEach((cb) => { cb.checked = (j.benefits || []).includes(cb.value); });
     f.querySelectorAll("[name=reqList]").forEach((cb) => { cb.checked = (j.reqList || []).includes(cb.value); });
+    { const hl = String(j.hours || "").match(/^(\d+) hours a day/); if (hl) f.hLen.value = hl[1]; }
     const hm = String(j.hours || "").match(/^(\d+) hours a day, (\d+):\d+\s*(AM|PM)/i);
     if (hm) { f.hLen.value = hm[1]; f.hStart.value = (Number(hm[2]) % 12) + (hm[3].toUpperCase() === "PM" ? 12 : 0); }
     autoTitle = "";
@@ -2476,7 +2550,7 @@ async function viewPost(editId = null) {
     if (!f.checkValidity()) {
       const bad = f.querySelector("input:invalid, select:invalid, textarea:invalid");
       const msgs = {
-        workplace: "Choose who's hiring: a private household or a business.", employerName: "Add the employer or household name.",
+        workplace: "Choose who's hiring: a private household or a business.", employerName: "Add the business name.",
         title: "Add a job title (at least 3 characters).", category: "Choose a category.", arrangement: "Choose live-in or stay-out.",
         city: "Choose the city or municipality.", salaryMin: "Enter the pay.",
         description: "Write a description of at least 30 characters: duties, schedule, household size.",
@@ -2494,8 +2568,9 @@ async function viewPost(editId = null) {
     f.city.value = okCity;
     const data = collect();
     if (data.salaryMax && data.salaryMax < data.salaryMin) return fail("The 'To' amount should be higher than 'From'.", f.salaryMax);
+    if (/_{3,}/.test(data.description)) return fail("Fill in the blanks (___) in the job description, or delete the lines you don't need.", f.description);
     { const floor = payFloor({ ...data, workplace: workplace() }); if (floor?.blocked) return fail(floor.blockMsg, f.salaryMin); }
-    if (!(data.daysOff >= 2)) return fail("The minimum is 2 days off per month.", f.daysOff);
+    if (data.workplace !== "business" && !(data.daysOff >= 2)) return fail("The minimum is 2 days off per month.", f.daysOff);
     const rows = [...f.querySelectorAll(".crow")].map((r) => ({ el: r.querySelector("[name=cValue]"), contactMethod: r.querySelector("[name=cMethod]").value, contactValue: r.querySelector("[name=cValue]").value.trim() })).filter((c) => c.contactValue);
     if (!rows.length) return fail("Add at least one way for the person you hire to reach you.", $("#add-contact"));
     for (const r of rows) {
@@ -2525,7 +2600,14 @@ async function viewPost(editId = null) {
       track("Lead", { content_name: "job_post", content_category: data.category });
       clearDraft("post");
       jobsCache = null;
-      app.innerHTML = `<div class="empty"><h1>Thanks! Your post is under review.</h1><p class="muted">We'll check it soon. Applicants will appear under My posts once it's live.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a> <a class="btn btn-ghost" href="#/post" id="again">Post another</a></p></div>`;
+      app.innerHTML = `<div class="empty next-steps"><h1>Thanks! Your post is in review.</h1>
+        <ol class="next-list">
+          <li><strong>We check it,</strong> usually within a day, so jobseekers can trust what they see.</li>
+          <li><strong>We'll let you know.</strong> You get a notification and an email when it's live, or what to fix if it isn't approved.</li>
+          <li><strong>Applicants come to My posts.</strong> The post stays up for 30 days, and each evening we email you your best new applicants.</li>
+          <li><strong>Need a change?</strong> Edit it anytime from My posts. Edits are checked again before they show.</li>
+        </ol>
+        <p><a class="btn btn-primary" href="#/my">Go to My posts</a> <a class="btn btn-ghost" href="#/post" id="again">Post another</a></p></div>`;
       $("#again").addEventListener("click", (ev) => { ev.preventDefault(); viewPost(); });
     } catch (ex) {
       console.error(ex); btn.disabled = false; btn.textContent = editJob ? "Save changes" : "Submit for review";
@@ -2554,6 +2636,7 @@ async function viewMy() {
       <div class="trow">
         <div><a href="/jobs/${encodeURIComponent(j.id)}/"><strong>${esc(j.title)}</strong></a> ${statusBadge(j)}
           <div class="muted small">${esc(j.city)} · posted ${ago(j.createdAt)}${j.expiresAt ? ` · ${isLive(j) ? "expires" : "expired"} ${new Date(j.expiresAt).toLocaleDateString("en-PH")}` : ""}</div>
+          ${j.status === "rejected" ? `<div class="info-ask"><strong>Not approved${j.rejectReason ? ":" : "."}</strong> ${j.rejectReason ? `${esc(j.rejectReason)}.` : ""}<span class="small muted"> Edit the post to fix it, and we'll check it again.</span></div>` : ""}
           ${j.status === "pending" && j.infoNote ? `<div class="info-ask"><strong>We need a bit more before approving this post:</strong> ${esc(j.infoNote)}.<span class="small muted"> Add your Facebook link or permit on your <a href="#/profile">profile</a>, or send the rest to us.</span><a class="btn btn-primary btn-sm" href="#/support" data-reply-info="${esc(j.id)}">Reply to Job Search PH</a></div>` : ""}</div>
         <div><a class="btn btn-ghost btn-sm" href="#/applicants/${encodeURIComponent(j.id)}">${a.length} applicant${a.length === 1 ? "" : "s"}${fresh ? ` <span class="dot">${fresh} new</span>` : ""}</a></div>
         <div class="actions">${j.status !== "closed" ? `<a class="btn btn-ghost btn-sm" href="#/post/edit/${encodeURIComponent(j.id)}">Edit</a>` : ""}${j.status === "approved" || j.status === "pending" ? `<button class="btn btn-ghost btn-sm" data-close="${esc(j.id)}">Mark filled / close</button>` : ""}</div>
@@ -2614,8 +2697,9 @@ function applicantCard(a, { top = false, readOnly = false } = {}) {
     <div class="ap-long">
       <div><span class="label">Jobs they want</span>${cats.length ? `<ul class="meta">${cats.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : `<p>${dash}</p>`}</div>
       <div><span class="label">Skills</span><p>${x.skills ? esc(x.skills) : dash}</p></div>
-      <div><span class="label">Work history</span><p>${x.workHistory ? nl2br(x.workHistory) : dash}</p></div>
+      <div><span class="label">Work history <span class="muted small">(written by them)</span></span><p>${x.workHistory ? nl2br(x.workHistory) : dash}</p></div>
     </div>
+    ${jsphHistoryHtml(a)}
     ${a.status === "hired" && !readOnly ? `<div class="actions emp-row">${employmentHtml(a)}</div>` : ""}
     ${readOnly ? "" : `<footer class="ap-foot">
       <div class="ap-contact">
@@ -2716,6 +2800,7 @@ async function viewApplications() {
       <div><a href="/jobs/${encodeURIComponent(a.jobId)}/"><strong>${esc(a.jobTitle)}</strong></a><div class="muted small">${esc(a.jobCity || "")} · applied ${ago(a.createdAt)}${DECLINED.includes(a.status) ? ` · ${chatClosedText(chatState(a))}` : ""}</div></div>
       <div>${a.status === "hired" && a.employmentEnded ? `<span class="badge badge-closed">Job ended</span>` : appBadge(a.status)}</div>
       <div class="actions"><a class="btn btn-ghost btn-sm" href="#/chat/${encodeURIComponent(a.id)}">${chatState(a).open ? "Message" : "View chat"}</a><a class="btn btn-ghost btn-sm" href="/jobs/${encodeURIComponent(a.jobId)}/">View job</a>${a.status === "hired" && !a.employmentEnded ? employmentHtml(a) : ""}${offerHtml(a)}</div>
+      ${a.status === "hired" && a.employmentEnded ? `<div class="trow-sub">${endedHtml(a)}</div>` : ""}
     </div>`).join("")}</div>`
     : `<div class="empty"><p><strong>No applications yet.</strong></p><p class="muted">Find a job you like and tap Apply.</p><p><a class="btn btn-primary" href="#/">Browse jobs</a></p></div>`;
   const hiredNow = apps.find((a) => a.status === "hired" && !a.employmentEnded && isFullTime(a.jobSchedule, a.jobArrangement));
@@ -2803,31 +2888,121 @@ async function handleOffer(btn, a, after) {
 }
 
 /* ---------------- Ending a job (both sides confirm) ---------------- */
+/* ---------------- Ending a job, and how it shows in work history ----------------
+   Each side picks its own reason. The worker's history shows the employer's reason (with the worker's
+   side under it); the employer's record shows the worker's reason (with the employer's side). */
+const END_REASONS = {
+  employer: [["finished", "The contract finished"], ["resigned", "They resigned"], ["let_go", "I let them go"], ["no_show", "They stopped showing up"]],
+  worker: [["finished", "The contract finished"], ["resigned", "I resigned"], ["let_go", "They let me go"], ["unpaid", "They didn't pay me as agreed"], ["no_reply", "They stopped responding"]],
+};
+// How a reason reads to someone else, e.g. on a worker's history.
+const ABOUT_WORKER = { finished: "Contract finished", resigned: "Resigned", let_go: "Let go by the employer", no_show: "Stopped showing up" };
+const ABOUT_EMPLOYER = { finished: "Contract finished", resigned: "Worker resigned", let_go: "Worker was let go", unpaid: "Worker says they weren't paid as agreed", no_reply: "Worker says the employer stopped responding" };
+const reasonText = (side, code) => (END_REASONS[side].find(([k]) => k === code) || [])[1] || "";
+const GHOST_DAYS = 7;
+const canClose = (a, me) => a.endRequestedBy === me && a.endRequestedAt && Date.now() - a.endRequestedAt > GHOST_DAYS * 864e5;
+
 function employmentHtml(a) {
   if (a.status !== "hired") return "";
   const me = getAuthState().user?.uid; const iAmEmployer = a.employerUid === me;
   const other = iAmEmployer ? (a.applicant?.fullName || "the worker") : (a.employerName || "the employer");
-  if (a.employmentEnded) return `<span class="emp-state ended">Job ended${a.endedAt ? ` ${ago(a.endedAt)}` : ""}</span>`;
+  if (a.employmentEnded) return endedHtml(a);
   if (!a.endRequestedBy) return `<button class="btn btn-ghost btn-sm" data-emp="request" data-id="${esc(a.id)}">${iAmEmployer ? "End employment" : "Leave this job"}</button>`;
-  if (a.endRequestedBy === me) return `<span class="emp-state">Waiting for ${esc(other)} to confirm</span><button class="btn btn-ghost btn-sm" data-emp="cancel" data-id="${esc(a.id)}">Cancel request</button>`;
+  if (a.endRequestedBy === me) return `<span class="emp-state">Waiting for ${esc(other)} to confirm</span>${canClose(a, me)
+    ? `<button class="btn btn-primary btn-sm" data-emp="close" data-id="${esc(a.id)}">Mark as ended</button>`
+    : `<span class="small muted">If they don't answer in ${GHOST_DAYS} days, you can mark it as ended yourself.</span>`}<button class="btn btn-ghost btn-sm" data-emp="cancel" data-id="${esc(a.id)}">Cancel request</button>`;
   return `<span class="emp-state ask">${esc(other)} says this job has ended</span><button class="btn btn-primary btn-sm" data-emp="confirm" data-id="${esc(a.id)}">Confirm</button><button class="btn btn-ghost btn-sm" data-emp="decline" data-id="${esc(a.id)}">Not yet</button>`;
+}
+// After a job ends: both reasons, both sides' notes, and buttons to add my side or ask for a review.
+function endedHtml(a) {
+  const me = getAuthState().user?.uid; const iAmEmployer = a.employerUid === me;
+  const mineCode = iAmEmployer ? a.endReasonEmployer : a.endReasonWorker, theirCode = iAmEmployer ? a.endReasonWorker : a.endReasonEmployer;
+  const other = iAmEmployer ? (a.applicant?.fullName || "The worker") : (a.employerName || "The employer");
+  const myReply = iAmEmployer ? a.replyEmployer : a.replyWorker, disputed = iAmEmployer ? a.disputeEmployer : a.disputeWorker;
+  const theirLabel = theirCode ? (iAmEmployer ? ABOUT_EMPLOYER : ABOUT_WORKER)[theirCode] : "";
+  return `<div class="ended-box">
+    <span class="emp-state ended">Job ended${a.endedAt ? ` ${ago(a.endedAt)}` : ""}</span>
+    ${mineCode ? `<p class="small"><strong>You said:</strong> ${esc(reasonText(iAmEmployer ? "employer" : "worker", mineCode))}${a.endUnanswered ? ` <span class="muted">(${esc(other)} didn't answer for ${GHOST_DAYS} days)</span>` : ""}</p>` : ""}
+    ${theirLabel ? `<p class="small"><strong>${esc(other)} said:</strong> ${esc(theirLabel)}</p>` : a.endUnanswered && !theirCode ? "" : ""}
+    ${theirLabel ? `<p class="small muted">${iAmEmployer ? "Jobseekers can see what workers say about past jobs with you." : "Employers you apply to can see this in your job history."}</p>
+      ${myReply ? `<p class="small ended-reply"><strong>Your side:</strong> ${esc(myReply)}</p>` : ""}
+      <div class="actions"><button class="btn btn-ghost btn-sm" data-emp="reply" data-id="${esc(a.id)}">${myReply ? "Edit your side" : "Add your side"}</button>${(iAmEmployer ? a.hideWorkerReason : a.hideEmployerReason) ? `<span class="small muted">Removed from the history after review</span>` : disputed ? `<span class="small muted">${(iAmEmployer ? a.disputeEmployerDone : a.disputeWorkerDone) ? "Reviewed: kept" : "Review requested"}</span>` : `<button class="btn btn-ghost btn-sm" data-emp="dispute" data-id="${esc(a.id)}">Ask for a review</button>`}</div>` : ""}
+  </div>`;
+}
+function textDialog({ title, body, value = "", max = 300, confirm = "Save" }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div"); wrap.className = "dlg-backdrop";
+    wrap.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><h2 id="dlg-t">${title}</h2><p>${body}</p>
+      <textarea id="dlg-text" rows="4" maxlength="${max}" style="width:100%">${esc(value)}</textarea>
+      <div class="dlg-actions"><button class="btn btn-ghost" data-v="0">Cancel</button><button class="btn btn-primary" data-v="1">${confirm}</button></div></div>`;
+    const done = (v) => { wrap.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
+    const onKey = (e) => { if (e.key === "Escape") done(null); };
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) return done(null); const b = e.target.closest("[data-v]"); if (!b) return; done(b.dataset.v === "1" ? wrap.querySelector("#dlg-text").value.trim() : null); });
+    document.addEventListener("keydown", onKey); document.body.appendChild(wrap); wrap.querySelector("#dlg-text").focus();
+  });
 }
 async function handleEmployment(btn, a, after) {
   const kind = btn.dataset.emp; const iAmEmployer = a.employerUid === getAuthState().user?.uid;
+  const side = iAmEmployer ? "employer" : "worker";
   const other = iAmEmployer ? (a.applicant?.fullName || "the worker") : (a.employerName || "the employer");
-  const ask = {
-    request: { title: iAmEmployer ? "End this employment?" : "Leave this job?", body: `We'll ask ${esc(other)} to confirm. The job is marked as ended only after they agree.`, yes: "Send request" },
-    confirm: { title: "Confirm the job has ended?", body: iAmEmployer ? `${esc(other)} will be able to apply to full-time jobs again.` : "You'll be able to apply to full-time jobs again.", yes: "Yes, it ended" },
-    decline: { title: "Say the job hasn't ended?", body: `We'll let ${esc(other)} know it's still going.`, yes: "Not yet" },
-    cancel: { title: "Cancel your request?", body: "The job stays active.", yes: "Cancel request" },
-  }[kind];
-  const ok = await showDialog({ title: ask.title, body: ask.body, actions: [{ label: "Back", value: false }, { label: ask.yes, value: true, primary: true }] });
-  if (!ok) return;
   try {
-    await store.employment(a, kind); myAppsCache = null;
-    toast({ request: "Request sent. Waiting for them to confirm.", confirm: "Job marked as ended.", decline: "Okay, the job stays active.", cancel: "Request cancelled." }[kind]);
+    if (kind === "reply") {
+      const t = await textDialog({ title: "Add your side", body: `This shows under what ${esc(other)} said. Keep it short and factual. Don't include phone numbers or addresses.`, value: (iAmEmployer ? a.replyEmployer : a.replyWorker) || "" });
+      if (t === null) return;
+      await store.endReply(a, t.slice(0, 300)); toast("Saved. It shows in the history within a few hours."); myAppsCache = null; return after?.();
+    }
+    if (kind === "dispute") {
+      const ok = await showDialog({ title: "Ask for a review?", body: `A Job Search PH admin will look at what ${esc(other)} said. If it isn't fair or accurate, we remove it from the history.`, actions: [{ label: "Back", value: false }, { label: "Ask for a review", value: true, primary: true }] });
+      if (!ok) return;
+      await store.endDispute(a); toast("Review requested. We'll look at it soon."); myAppsCache = null; return after?.();
+    }
+    let reason = "";
+    if (kind === "request" || kind === "confirm") {
+      const labels = END_REASONS[side].map(([, l]) => l);
+      const picked = await pickDialog({ title: kind === "request" ? (iAmEmployer ? "Why is this job ending?" : "Why are you leaving?") : "How did the job end?",
+        body: `${kind === "request" ? `We'll ask ${esc(other)} to confirm, and they give their own reason.` : "Pick what happened from your side."} ${iAmEmployer ? "Jobseekers' future employers can see this in their job history." : "Jobseekers can see what workers say about past jobs with an employer."}`,
+        options: labels, confirm: kind === "request" ? "Send request" : "Confirm it ended" });
+      if (!picked) return;
+      reason = (END_REASONS[side].find(([, l]) => l === picked[0]) || [])[0] || "";
+      if (!reason) return;
+    } else {
+      const ask = {
+        decline: { title: "Say the job hasn't ended?", body: `We'll let ${esc(other)} know it's still going.`, yes: "Not yet" },
+        cancel: { title: "Cancel your request?", body: "The job stays active.", yes: "Cancel request" },
+        close: { title: "Mark this job as ended?", body: `${esc(other)} hasn't answered for ${GHOST_DAYS} days. Your reason shows in the history, noting that they didn't answer. They can still add their side.`, yes: "Mark as ended" },
+      }[kind];
+      const ok = await showDialog({ title: ask.title, body: ask.body, actions: [{ label: "Back", value: false }, { label: ask.yes, value: true, primary: true }] });
+      if (!ok) return;
+    }
+    await store.employment(a, kind, reason); myAppsCache = null;
+    toast({ request: "Request sent. Waiting for them to confirm.", confirm: "Job marked as ended.", decline: "Okay, the job stays active.", cancel: "Request cancelled.", close: "Job marked as ended." }[kind]);
     after?.();
   } catch (err) { console.error(err); toast(err.code === "permission-denied" ? "Couldn't update. Make sure the latest database rules are published." : "Could not update. Try again."); }
+}
+
+// An employer's past hires through Job Search PH, as their workers described how the job ended.
+// Signed-in visitors only; built by the email robot into employerRecord/{uid}.
+async function renderEmployerRecord(j) {
+  const box = $("#emp-record"); if (!box || !getAuthState().user || !j.ownerUid) return;
+  const r = await store.employerRecord(j.ownerUid).catch(() => null);
+  if (!r || !r.hires || !$("#emp-record")) return;
+  const bad = (r.items || []).filter((x) => ["unpaid", "no_reply"].includes(x.reason));
+  box.innerHTML = `<strong>Past hires on Job Search PH</strong>
+    <p class="small">${r.hires} job${r.hires === 1 ? "" : "s"} with this employer ended through Job Search PH.${bad.length ? "" : " No worker reported a problem."}</p>
+    ${bad.length ? `<ul class="small emp-rec-list">${bad.slice(0, 3).map((x) => `<li><span class="hist-bad">${esc(ABOUT_EMPLOYER[x.reason])}</span>${x.unanswered ? " (employer didn't answer)" : ""}${x.reply ? `<div><strong>Employer's side:</strong> ${esc(x.reply)}</div>` : ""}</li>`).join("")}</ul>` : ""}`;
+  box.hidden = false;
+}
+
+// A worker's past jobs through Job Search PH (built by the email robot, copied onto their applications).
+function jsphHistoryHtml(a) {
+  const list = (a.jsphHistory || []).filter((h) => h.appId !== a.id);
+  if (!Array.isArray(a.jsphHistory)) return "";
+  const when = (ms) => (ms ? new Date(ms).toLocaleDateString("en-PH", { month: "short", year: "numeric" }) : "");
+  return `<div class="jsph-hist"><span class="label">Jobs on Job Search PH</span>${list.length ? `<ul>${list.map((h) => `<li>
+      <strong>${esc(h.title)}</strong> · ${esc(h.employer)}<span class="muted small"> · ${esc([when(h.from), when(h.to)].filter(Boolean).join("–"))}</span>
+      ${h.reason ? `<div class="small ${["no_show", "let_go"].includes(h.reason) ? "hist-bad" : ""}">Ended: ${esc(ABOUT_WORKER[h.reason] || "")}${h.unanswered ? " (the worker didn't answer)" : ""} <span class="muted">· employer's report</span></div>` : `<div class="small muted">Ended</div>`}
+      ${h.reply ? `<div class="small hist-reply"><strong>Worker's side:</strong> ${esc(h.reply)}</div>` : ""}
+      ${h.underReview ? `<div class="small muted">Under review by Job Search PH</div>` : ""}</li>`).join("")}</ul>` : `<p class="small muted">No finished jobs through Job Search PH yet.</p>`}</div>`;
 }
 
 /* ---------------- Messages ---------------- */
@@ -3017,6 +3192,7 @@ const ADMIN_SECTIONS = [
   { k: "reports", g: "review", queue: true, label: "Reports", icon: "flag", title: "Reports", desc: "Job posts that users reported. Close the post or dismiss the report." },
   { k: "flags", g: "review", queue: true, label: "Chat flags", icon: "alert", title: "Chat flags", desc: "Chat messages that look like a scam: money, fees, one-time codes, ID numbers or odd links. Checked automatically. Open the chat to see the whole conversation." },
   { k: "verify", g: "review", queue: true, label: "ID checks", icon: "id", title: "ID checks", desc: "Check that the ID looks real, the name matches their profile, and the face matches the selfie. Photos are deleted as soon as you decide." },
+  { k: "disputes", g: "review", queue: true, label: "Disputes", icon: "alert", title: "Work history disputes", desc: "Someone asked you to review what the other side said about how a job ended. Remove it from the history if it isn't fair or accurate, or keep it." },
   { k: "support", g: "review", queue: true, label: "Support", icon: "help", title: "Support", desc: "Messages sent through Contact support." },
   { k: "users", g: "manage", label: "Users", icon: "users", title: "Users", desc: "Everyone with a profile. Open someone to see their details, verify or ban them." },
   { k: "approved", g: "manage", label: "Live posts", icon: "check", title: "Live posts", desc: "Jobs showing on the site now." },
@@ -3776,6 +3952,19 @@ async function viewAdmin() {
         <div class="adm-card-actions"><a class="btn btn-primary btn-sm" href="#/chat/${encodeURIComponent(f.appId)}">Open chat</a><button class="btn btn-ghost btn-sm" data-flag-done="${esc(f.id)}">Looks fine</button></div>
       </article>`).join("")}</div>` : `<div class="adm-empty">${ADMIN_ICONS.check}<p><strong>All clear.</strong> No flagged chat messages.</p></div>`}`;
     body.querySelectorAll("[data-flag-done]").forEach((b) => b.addEventListener("click", async () => { try { await store.dismissFlag(b.dataset.flagDone); b.closest(".adm-card").remove(); toast("Cleared"); } catch { toast("Couldn't clear it"); } }));
+  } else if (adminTab === "disputes") {
+    const list = await store.listDisputes();
+    body.innerHTML = list.length ? `<div class="adm-list">${list.map(({ a, by }) => {
+      const label = by === "worker" ? ABOUT_WORKER[a.endReasonEmployer] : ABOUT_EMPLOYER[a.endReasonWorker];
+      return `<article class="adm-card"><div class="adm-card-main">
+        <div class="adm-tags"><span class="adm-tag amber">${by === "worker" ? "Worker disputes the employer's reason" : "Employer disputes the worker's reason"}</span></div>
+        <h3 class="adm-title">${esc(a.jobTitle || "Job")} · ${esc(a.applicant?.fullName || "Worker")} and ${esc(a.employerName || "Employer")}</h3>
+        <p class="small"><strong>Disputed:</strong> ${esc(label || "No reason given")}${a.endUnanswered ? " (marked ended without an answer)" : ""}</p>
+        <p class="small"><strong>Employer said:</strong> ${esc(reasonText("employer", a.endReasonEmployer) || "—")}${a.replyEmployer ? ` · <em>${esc(a.replyEmployer)}</em>` : ""}</p>
+        <p class="small"><strong>Worker said:</strong> ${esc(reasonText("worker", a.endReasonWorker) || "—")}${a.replyWorker ? ` · <em>${esc(a.replyWorker)}</em>` : ""}</p>
+        <p class="adm-meta"><a href="#/chat/${encodeURIComponent(a.id)}">Open their chat</a> · <a href="#/admin/user/${encodeURIComponent(a.applicantUid)}">Worker</a> · <a href="#/admin/user/${encodeURIComponent(a.employerUid)}">Employer</a></p>
+      </div><div class="adm-card-actions"><button class="btn btn-danger btn-sm" data-act="disputehide" data-id="${esc(a.id)}" data-by="${by}">Remove from history</button><button class="btn btn-ghost btn-sm" data-act="disputekeep" data-id="${esc(a.id)}" data-by="${by}">Keep it</button></div></article>`; }).join("")}</div>`
+      : `<div class="adm-empty">${ADMIN_ICONS.check}<p><strong>All clear.</strong> No disputes to review.</p></div>`;
   } else if (adminTab === "reports") {
     const reports = await store.listReports();
     const jobs = {};
@@ -3882,13 +4071,23 @@ async function viewAdmin() {
           : { type: "job_approved", title: "Your job post is live", body: `${aj.title} is now visible to jobseekers for 30 days.`, link: `/jobs/${id}/`, jobId: id }).catch(() => {});
       }
       if (act === "reject") {
-        await store.updateJob(id, { status: "rejected" });
-        if (aj) store.notify(aj.ownerUid, { type: "job_rejected", title: "Your job post wasn't approved", body: `${aj.title} didn't meet our posting rules. Check the pay, details and contact, then post again.`, link: "#/my", jobId: id }).catch(() => {});
+        const picked = await pickDialog({ title: "Why isn't this post approved?", body: "The employer sees this in My posts, a notification and an email, so they know what to fix.", options: REJECT_REASONS, multi: true, other: "Anything else? (optional)", confirm: "Reject post" });
+        if (!picked || !picked.length) return;
+        const reason = picked.join("; ").slice(0, 300);
+        await store.updateJob(id, { status: "rejected", rejectReason: reason });
+        if (aj) store.notify(aj.ownerUid, { type: "job_rejected", title: "Your job post wasn't approved", body: `${aj.title}: ${reason}. Fix it and submit it again.`.slice(0, 300), link: "#/my", jobId: id }).catch(() => {});
       }
       if (act === "closejob") { await store.updateJob(id, { status: "closed" }); await store.clearReportsFor(id); }
       if (act === "feature") await store.updateJob(id, { featured: b.dataset.on !== "1" });
       if (act === "delete") { await store.deleteJob(id); await store.clearReportsFor(id); }
       if (act === "dismiss") await store.dismissReport(id);
+      if (act === "disputehide" || act === "disputekeep") {
+        const hide = act === "disputehide";
+        const a = await store.getApplication(id);
+        await store.resolveDispute(id, b.dataset.by, hide);
+        const who = b.dataset.by === "worker" ? a?.applicantUid : a?.employerUid;
+        if (who) store.notify(who, { type: "dispute_done", title: "We reviewed your request", body: hide ? `We removed it from the history for ${a.jobTitle}.` : `We looked at it and kept it for ${a.jobTitle}. Your side still shows under it.`, link: b.dataset.by === "worker" ? "#/applications" : `#/applicants/${a.jobId}`, appId: id, jobId: a.jobId }).catch(() => {});
+      }
       if (act === "supportdone") await store.closeSupport(id);
       if (act === "supportreopen") await store.reopenSupport(id);
       jobsCache = null; toast("Done"); viewAdmin();
@@ -4037,9 +4236,9 @@ function viewStatic(page) {
     privacy: {
       title: "Privacy policy",
       html: legalPage("Privacy policy", "How Job Search PH collects, uses and protects your personal data, in line with the Data Privacy Act of 2012 (RA 10173) and the rules of the National Privacy Commission.", [
-        ["Data we collect", `<ul><li><strong>Account:</strong> your email and sign-in method (Google, Facebook, or email and password). If you use Facebook, we only receive your name, email and profile picture, and we never post to your Facebook.</li><li><strong>Jobseeker profile:</strong> name, photo (optional), birthdate (we show employers your age, not your birthdate), gender, mobile number, city, Messenger, jobs wanted, experience, skills, work history, education and resume link.</li><li><strong>Employer profile:</strong> name, photo (optional), household or business name, mobile number, city and Messenger.</li><li><strong>Activity on the site:</strong> job posts, applications, chat messages, interview and hiring status, notifications, reports and support messages.</li><li><strong>Get Verified (optional, for employers and jobseekers):</strong> a photo of your ID and a selfie holding it. They're stamped "Job Search PH · verification only" on your device before sending, and their location and camera details are removed. Only Job Search PH admins see them, only to confirm you're a real person. They're deleted as soon as we approve or reject, or after 14 days if we haven't. We keep only that you were verified, the type of ID and the date.</li><li><strong>Anti-spam counters:</strong> how many applications, posts, messages and reports you sent today.</li><li><strong>On your device only:</strong> your light or dark mode choice, and whether you allowed cookies.</li></ul><p><strong>Cookies (only if you allow them):</strong> we may ask to use the Meta (Facebook) Pixel to see which of our ads bring people to Job Search PH. It only loads if you tap <strong>Allow</strong>, and you can change your choice anytime with <strong>Cookies</strong> at the bottom of the page. It tells Meta which public pages you visited and when you sign up, apply or post a job, together with information your browser normally sends (such as your device and IP address). We never send Meta your name, email, phone number, messages or ID photos, and we never report private pages like chats or your profile.</p><p>We don't sell your data.</p>`],
+        ["Data we collect", `<ul><li><strong>Account:</strong> your email and sign-in method (Google, Facebook, or email and password). If you use Facebook, we only receive your name, email and profile picture, and we never post to your Facebook.</li><li><strong>Jobseeker profile:</strong> name, photo (optional), birthdate (we show employers your age, not your birthdate), gender, mobile number, city, Messenger, jobs wanted, experience, skills, work history, education and resume link.</li><li><strong>When a job ends:</strong> each side's reason (for example "contract finished" or "stopped showing up"), each side's reply, and any request for us to review it. Either side can ask us to review a reason they think is unfair, and we remove it if it isn't accurate.</li><li><strong>Employer profile:</strong> name, photo (optional), household or business name, mobile number, city and Messenger.</li><li><strong>Activity on the site:</strong> job posts, applications, chat messages, interview and hiring status, notifications, reports and support messages.</li><li><strong>Get Verified (optional, for employers and jobseekers):</strong> a photo of your ID and a selfie holding it. They're stamped "Job Search PH · verification only" on your device before sending, and their location and camera details are removed. Only Job Search PH admins see them, only to confirm you're a real person. They're deleted as soon as we approve or reject, or after 14 days if we haven't. We keep only that you were verified, the type of ID and the date.</li><li><strong>Anti-spam counters:</strong> how many applications, posts, messages and reports you sent today.</li><li><strong>On your device only:</strong> your light or dark mode choice, and whether you allowed cookies.</li></ul><p><strong>Cookies (only if you allow them):</strong> we may ask to use the Meta (Facebook) Pixel to see which of our ads bring people to Job Search PH. It only loads if you tap <strong>Allow</strong>, and you can change your choice anytime with <strong>Cookies</strong> at the bottom of the page. It tells Meta which public pages you visited and when you sign up, apply or post a job, together with information your browser normally sends (such as your device and IP address). We never send Meta your name, email, phone number, messages or ID photos, and we never report private pages like chats or your profile.</p><p>We don't sell your data.</p>`],
         ["Why we use it", `<ul><li>To run your account and show your posts, applications and messages;</li><li>To share your profile with employers you apply to, and employer contact details with the worker they hire;</li><li>To review job posts, prevent spam, fraud and abuse, and handle reports and appeals;</li><li>To reply to support requests and improve the site;</li><li>If you turn on job alerts, to email you new jobs that match the jobs and city on your profile. Emails are sent through our email provider, Resend. Unsubscribe with the link in any email or in My profile.</li></ul>`],
-        ["Who can see it", `<ul><li><strong>Everyone:</strong> live job posts (title, employer or household name, area, pay and details). Employer contact details are not public.</li><li><strong>Employers you apply to:</strong> your profile, photo, age, contact details, message, experience and resume.</li><li><strong>The worker you hire:</strong> the employer contact you entered on the post, once they accept your job offer.</li><li><strong>The person you're chatting with:</strong> your messages.</li><li><strong>Job Search PH admins:</strong> all data, only to run and keep the site safe.</li><li><strong>Service provider:</strong> the site runs on Google Firebase, which stores data for us under its own security and privacy terms.</li></ul><p>We may also disclose data when the law requires it, such as a lawful order from the authorities.</p>`],
+        ["Who can see it", `<ul><li><strong>Everyone:</strong> live job posts (title, business name, area, pay and details). Households show as "Private household". Employer contact details are not public.</li><li><strong>Employers you apply to:</strong> your profile, photo, age, contact details, message, experience and resume, and your jobs on Job Search PH: how each one ended as the employer reported it, with your side.</li><li><strong>Signed-in jobseekers:</strong> how past jobs with an employer ended, as the workers reported it, with the employer's side.</li><li><strong>The worker you hire:</strong> the employer contact you entered on the post, once they accept your job offer.</li><li><strong>The person you're chatting with:</strong> your messages.</li><li><strong>Job Search PH admins:</strong> all data, only to run and keep the site safe.</li><li><strong>Service provider:</strong> the site runs on Google Firebase, which stores data for us under its own security and privacy terms.</li></ul><p>We may also disclose data when the law requires it, such as a lawful order from the authorities.</p>`],
         ["How long we keep it", `<ul><li>Your profile stays until you delete it.</li><li>Job posts expire after 30 days and stay in your account until removed.</li><li>Applications and chats stay so both sides can refer back to them. Chats with declined applicants close after 48 hours but remain readable.</li><li>Reports and safety records are kept as long as needed to protect users, then deleted.</li></ul>`],
         ["How we protect it", `<p>Data is stored on Google Firebase with access rules that let each person see only what they're allowed to. Admin access is limited to authorized Job Search PH staff. No system is perfectly secure, so please use a strong password and keep it private.</p>`],
         ["Your rights", `<p>Under the Data Privacy Act, you can:</p><ul><li>Ask what data we have about you and get a copy;</li><li>Correct wrong information (most of it you can edit in My profile);</li><li>Delete your whole account yourself (My profile → <a href="#/delete-account">Delete my account</a>). Your profile, posts, applications and notifications are deleted right away; chat messages are deleted 30 days later (we keep them that long only to investigate scam reports);</li><li>Object to how we use your data, or withdraw consent;</li><li>File a complaint with the National Privacy Commission (privacy.gov.ph).</li></ul><p>To make a request, email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`],
@@ -4072,6 +4271,8 @@ let lastUid;
 async function route() {
   renderNav();
   $("#nav").classList.remove("open"); $("#nav-toggle").setAttribute("aria-expanded", "false");
+  // The home page has a clean address: "/#/" or "/jobs/#/" becomes "/" or "/jobs/".
+  if (location.hash === "#/" || location.hash === "#") history.replaceState(null, "", location.pathname + location.search);
   const [, page, arg, arg2] = routeParts();
   window.scrollTo(0, 0);
   const { user, profile, banned, isAdmin } = getAuthState();
@@ -4122,7 +4323,7 @@ async function route() {
   if (page === "support") return viewSupport();
   if (page === "chat" && arg) return viewChat(decodeURIComponent(arg));
   if (page === "admin" && arg === "user" && arg2) return viewAdminUser(decodeURIComponent(arg2));
-  if (page === "admin") { if (["analytics", "users", "pending", "approved", "reports", "flags", "verify", "support", "rejected", "closed"].includes(arg)) adminTab = arg; return viewAdmin(); }
+  if (page === "admin") { if (["analytics", "users", "pending", "approved", "reports", "flags", "verify", "disputes", "support", "rejected", "closed"].includes(arg)) adminTab = arg; return viewAdmin(); }
   if (["safety", "terms", "privacy"].includes(page)) return viewStatic(page);
   go("/");
 }

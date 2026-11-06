@@ -1559,3 +1559,25 @@ h2, h3 { font-weight: 700; letter-spacing: -.01em; }
 .emp-how ol { margin: 0 0 16px; padding-left: 20px; line-height: 1.7; }
 .emp-how .muted { margin: 14px 0 0; }
 @media (max-width: 720px) { .emp-benefits { grid-template-columns: 1fr; } }
+
+/* "More job types" button and the extra types it reveals */
+.link-btn, .more-toggle { flex-basis: 100%; justify-self: start; width: fit-content; margin: 2px 0; padding: 4px 0; border: 0; background: none; color: var(--indigo); font: inherit; font-size: .88rem; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.more-types { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+.more-types > .ob-grid { flex-basis: 100%; }
+
+/* After posting a job: what happens next */
+.next-steps .next-list { text-align: left; max-width: 520px; margin: 8px auto 20px; padding-left: 22px; line-height: 1.6; color: var(--slate); }
+.next-steps .next-list li { margin: 6px 0; }
+.next-steps .next-list strong { color: var(--navy); }
+
+/* How a job ended, job history, employer record */
+.trow-sub { grid-column: 1 / -1; }
+.ended-box { display: grid; gap: 4px; width: 100%; }
+.ended-box p { margin: 0; }
+.ended-box .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.ended-reply, .hist-reply { border-left: 3px solid var(--line); padding-left: 8px; }
+.jsph-hist { margin: 12px 0 4px; padding-top: 10px; border-top: 1px solid var(--line); }
+.jsph-hist ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 10px; }
+.hist-bad { color: #b42318; font-weight: 600; }
+.emp-record > strong { display: block; margin-bottom: 4px; }
+.emp-rec-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; }

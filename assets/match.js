@@ -31,6 +31,11 @@ const SKILL_WORDS = {
   "Own motorcycle": /motor|rider|motorcycle/i,
   "Speaks Hiligaynon": /hiligaynon|ilonggo/i,
   "Speaks English": /english/i,
+  "Speaks Cebuano": /cebuano|bisaya|binisaya/i,
+  "Speaks Filipino": /filipino|tagalog/i,
+  "TESDA NC II": /tesda|nc ?ii|nc ?2|national certificate/i,
+  "PRC license": /\bprc\b|licensed (nurse|teacher|professional)|board passer|\blet\b|\bcpa\b|\brn\b/i,
+  "Food handler's certificate": /food handler|food safety|health certificate/i,
 };
 
 const low = (s) => String(s || "").trim().toLowerCase();
