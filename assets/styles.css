@@ -918,12 +918,6 @@ body > .site-footer { flex-shrink: 0; }
 .au-facts > div:last-child { grid-column: 1 / -1; }
 .suspended { text-align: center; }
 .suspended .empty-art { margin: 0 auto 8px; }
-/* Subtle beta label */
-.beta { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: .62rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--slate); border: 1px solid var(--line); background: transparent; vertical-align: middle; line-height: 1.5; }
-.brand .beta { position: relative; top: -1px; }
-.beta-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--slate-soft); font-size: .8rem; }
-.beta-line .beta { margin-left: 0; }
-@media (max-width: 460px) { .brand .beta { display: none; } }
 .an-tablewrap { overflow-x: auto; margin-top: 8px; }
 .an-src { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
 .an-src th { text-align: right; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--slate-soft); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -1546,3 +1540,22 @@ h2, h3 { font-weight: 700; letter-spacing: -.01em; }
 .ob-other label { display: block; font-weight: 600; font-size: .92rem; margin-bottom: 6px; color: var(--navy); }
 .ob-other .ac { position: relative; }
 .ob-other .ac-list { top: calc(100% + 4px); }
+
+/* Employers page (/employers/) */
+.side-more { display: inline-block; margin-top: 10px; color: inherit; font-size: .85rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; opacity: .9; }
+.emp-page { max-width: 880px; margin: 0 auto; padding: 8px 0 40px; }
+.emp-hero { padding: 28px 0 8px; }
+.emp-kicker { margin: 0 0 6px; color: var(--indigo); font-weight: 700; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; }
+.emp-hero h1 { margin: 0 0 10px; font-size: clamp(1.7rem, 4.5vw, 2.4rem); line-height: 1.15; color: var(--navy); letter-spacing: -.01em; }
+.emp-sub { margin: 0 0 18px; font-size: 1.05rem; color: var(--slate, #4b5266); max-width: 60ch; }
+.emp-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; }
+.emp-benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 28px 0; }
+.emp-benefit { background: var(--card, #fff); border: 1px solid var(--line, #e3e5ec); border-radius: 14px; padding: 18px; }
+.emp-benefit h2 { margin: 8px 0 6px; font-size: 1.05rem; color: var(--navy); }
+.emp-benefit p { margin: 0; color: var(--slate, #4b5266); font-size: .93rem; line-height: 1.5; }
+.emp-num { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--navy); color: #fff; font-weight: 700; font-size: .85rem; }
+.emp-how { background: var(--card, #fff); border: 1px solid var(--line, #e3e5ec); border-radius: 14px; padding: 20px 22px; }
+.emp-how h2 { margin: 0 0 10px; font-size: 1.15rem; color: var(--navy); }
+.emp-how ol { margin: 0 0 16px; padding-left: 20px; line-height: 1.7; }
+.emp-how .muted { margin: 14px 0 0; }
+@media (max-width: 720px) { .emp-benefits { grid-template-columns: 1fr; } }

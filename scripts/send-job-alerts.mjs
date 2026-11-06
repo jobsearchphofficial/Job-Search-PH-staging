@@ -49,7 +49,7 @@ export function matchesFor(user, jobs, lastSentAt) {
 
 /* ---------- Email ---------- */
 
-const jobUrl = (j) => `${SITE}/?src=job-alert#/job/${encodeURIComponent(j.id)}`;
+const jobUrl = (j) => `${SITE}/jobs/${encodeURIComponent(j.id)}/?src=job-alert`;
 const place = (j) => [j.area, j.city].filter(Boolean).join(", ");
 const kind = (j) => j.category === "Other" && j.categoryOther ? j.categoryOther : j.category;
 const employer = (j) => j.workplace === "household" ? "Private household" : j.employerName;

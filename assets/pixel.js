@@ -3,7 +3,7 @@
 // - Asks first ("Allow / No thanks"); the choice is remembered on this device and can be changed from the footer.
 // - Sends no names, emails or phone numbers (no advanced matching, no automatic events).
 // - Only reports public pages: never chats, messages, profile, admin, ID checks or email links.
-import { META_PIXEL_ID } from "./firebase-config.js?v=1793862985";
+import { META_PIXEL_ID } from "./firebase-config.js?v=1793951381";
 
 const KEY = "jsph-ads-consent";
 const PUBLIC = /^#?\/?($|job\/|jobs|post|join\/|signin|safety|terms|privacy|support)/;
@@ -25,11 +25,13 @@ function load() {
   window.fbq("init", META_PIXEL_ID);
   pageView();
   window.addEventListener("hashchange", pageView);
+  window.addEventListener("popstate", pageView);
+  window.addEventListener("jsph:page", pageView); // the app moved to a public page without a reload
 }
 let last = "", lastAt = 0;
 function pageView() {
   if (!loaded || !safePage()) return;
-  const page = location.hash || "#/";
+  const page = location.pathname + (location.hash || "");
   if (page === last && Date.now() - lastAt < 3000) return; // redirects can fire twice for the same page
   last = page; lastAt = Date.now();
   window.fbq("track", "PageView");
@@ -46,7 +48,7 @@ function banner() {
   if (document.getElementById("ads-consent")) return;
   const el = document.createElement("div");
   el.id = "ads-consent"; el.className = "consent"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Cookies");
-  el.innerHTML = `<p>We use cookies to improve Job Search PH. <a href="#/privacy">Learn more</a></p>
+  el.innerHTML = `<p>We use cookies to improve Job Search PH. <a href="/#/privacy">Learn more</a></p>
     <div class="consent-actions"><button type="button" class="btn btn-ghost btn-sm" data-c="no">No thanks</button><button type="button" class="btn btn-primary btn-sm" data-c="yes">Allow</button></div>`;
   el.addEventListener("click", (e) => {
     const b = e.target.closest("[data-c]"); if (!b) return;

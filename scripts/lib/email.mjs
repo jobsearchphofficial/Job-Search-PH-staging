@@ -69,7 +69,7 @@ export function layout({ title, preheader = "", body, footerNote = "", safety = 
         </td>
       </tr></table>
       ${footerNote ? `<p style="margin:18px 0 0 0;font-family:${F};font-size:12px;line-height:18px;color:#8a8fa3;">${footerNote}</p>` : ""}
-      <p style="margin:12px 0 0 0;font-family:${F};font-size:12px;line-height:18px;color:#8a8fa3;"><a href="${SITE}/#/safety" style="color:#6b7186;text-decoration:underline;">Help &amp; safety</a> &nbsp;·&nbsp; <a href="${SITE}/#/privacy" style="color:#6b7186;text-decoration:underline;">Privacy</a> &nbsp;·&nbsp; <a href="${SITE}" style="color:#6b7186;text-decoration:underline;">jobsearchph.com</a></p>
+      <p style="margin:12px 0 0 0;font-family:${F};font-size:12px;line-height:18px;color:#8a8fa3;"><a href="${SITE}/safety/" style="color:#6b7186;text-decoration:underline;">Help &amp; safety</a> &nbsp;·&nbsp; <a href="${SITE}/#/privacy" style="color:#6b7186;text-decoration:underline;">Privacy</a> &nbsp;·&nbsp; <a href="${SITE}" style="color:#6b7186;text-decoration:underline;">jobsearchph.com</a></p>
       <p style="margin:10px 0 0 0;font-family:${F};font-size:11px;line-height:17px;color:#a3a7b6;">Job Search PH is a job listing board. We do not recruit, screen or place workers, and we never charge jobseekers.</p>
     </td></tr>
   </table>

@@ -1,5 +1,19 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Page not found | Job Search PH</title>
-<meta http-equiv="refresh" content="0; url=/"><link rel="icon" href="/favicon.ico"></head>
+<meta name="robots" content="noindex"><link rel="icon" href="/favicon.ico">
+<script>
+// GitHub Pages serves this for any address without a file. Job pages are built every ~2 hours,
+// so a brand-new job's address opens through the app until its page exists. Anything else goes home.
+(function () {
+  var p = location.pathname;
+  if (/^\/(jobs\/[A-Za-z0-9_-]{1,64}|employers|safety|jobs)\/?$/.test(p)) {
+    var q = location.search ? location.search.slice(1) + "&" : "";
+    location.replace("/?" + q + "p=" + encodeURIComponent(p) + location.hash);
+  } else {
+    location.replace("/");
+  }
+})();
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=/"></noscript></head>
 <body style="font-family:system-ui,sans-serif;text-align:center;padding:40px;background:#fff;color:#162046">
 <p>Page not found. Taking you to <a href="/">Job Search PH</a>…</p></body></html>

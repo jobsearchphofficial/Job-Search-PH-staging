@@ -1,8 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793862985";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793862985";
-import { fitScore, rankApplicants } from "./match.js?v=1793862985";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793862985";
-import { initPixel, track } from "./pixel.js?v=1793862985";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793951381";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793951381";
+import { fitScore, rankApplicants } from "./match.js?v=1793951381";
+import { scamFlags, SERIOUS } from "./safety.js?v=1793951381";
+import { initPixel, track } from "./pixel.js?v=1793951381";
+import { IDENTITY, employersHtml } from "./pages.js?v=1793951381";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -671,12 +672,52 @@ let signInPurpose = "";
 let pendingName = "";
 let signupIntent = "";
 let startSignup = false; // #/join/… links open the "Create account" form first
+/* ---------------- Addresses ----------------
+   Public pages have real addresses Google can index: /jobs/, /jobs/<id>/, /employers/, /safety/.
+   Everything else (sign-in, profile, messages, admin…) stays on #/ routes of the home page. */
+const PATH_ROUTES = [
+  [/^\/jobs\/([A-Za-z0-9_-]{1,64})\/?$/, (m) => ["job", m[1]]],
+  [/^\/jobs\/?$/, () => [""]],
+  [/^\/employers\/?$/, () => ["employers"]],
+  [/^\/safety\/?$/, () => ["safety"]],
+];
+const isHashRoute = () => location.hash.startsWith("#/");
+function routeParts() {
+  if (isHashRoute()) return location.hash.split("/");
+  for (const [re, f] of PATH_ROUTES) { const m = location.pathname.match(re); if (m) return ["#", ...f(m)]; }
+  return ["#", ""];
+}
+// Where we are now, as something go() can return to.
+const here = () => (isHashRoute() ? location.hash : location.pathname);
+// Go to a #/ route or a real address without reloading the page.
+function go(to) {
+  if (!to) return;
+  if (to.startsWith("#")) {
+    if (location.pathname === "/") { if (location.hash === to) route(); else location.hash = to; return; }
+    to = "/" + to; // #/ routes live on the home page
+  }
+  if (location.pathname + location.hash !== to) history.pushState(null, "", to);
+  route();
+  window.dispatchEvent(new Event("jsph:page"));
+}
+// Links to public pages and #/ routes open inside the app (no reload). Modified clicks and new tabs behave normally.
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target.closest("a[href]"); if (!a || a.target || a.hasAttribute("download") || a.dataset.action) return; // data-action links have their own handler
+  const href = a.getAttribute("href");
+  if (href.startsWith("#/")) { if (location.pathname !== "/") { e.preventDefault(); go(href); } return; }
+  let url; try { url = new URL(href, location.href); } catch { return; }
+  if (url.origin !== location.origin || url.search || !(url.pathname === "/" || PATH_ROUTES.some(([re]) => re.test(url.pathname)))) return;
+  e.preventDefault(); go(url.pathname + url.hash);
+});
+window.addEventListener("popstate", () => { if (!isHashRoute() || location.pathname !== "/") route(); });
+
 function goSignIn(purpose, intent) {
-  returnTo = location.hash || "#/";
+  returnTo = here();
   if (intent) signupIntent = intent;
-  if (intent === "employer" && /^#?\/?$/.test(location.hash)) returnTo = "#/post";
+  if (intent === "employer" && /^(#?\/?|\/jobs\/?)$/.test(here())) returnTo = "#/post";
   signInPurpose = purpose || "";
-  location.hash = "#/signin";
+  go("#/signin");
 }
 function finishAuthFlow() {
   startSignup = false;
@@ -684,7 +725,7 @@ function finishAuthFlow() {
   if (!profile) { location.hash = "#/profile"; return; }
   const to = returnTo && !/^#\/(signin|profile)/.test(returnTo) ? returnTo : "#/";
   returnTo = null;
-  if (location.hash === to) route(); else location.hash = to;
+  go(to);
 }
 
 /* ---------------- Dialog (no browser popups) ---------------- */
@@ -770,7 +811,7 @@ document.addEventListener("click", async (e) => {
   if (item) {
     wrap.classList.remove("open");
     if (item.dataset.nid !== "_pending") store.markRead([item.dataset.nid]).catch(() => {});
-    if (item.dataset.link) { if (location.hash === item.dataset.link) route(); else location.hash = item.dataset.link; }
+    if (item.dataset.link) go(item.dataset.link);
     renderBell(); return;
   }
   if (wrap.classList.contains("open") && !e.target.closest("#bell-wrap")) { wrap.classList.remove("open"); renderBell(); }
@@ -779,11 +820,13 @@ document.addEventListener("click", async (e) => {
 /* ---------------- Nav ---------------- */
 function renderNav() {
   const { user, profile, isAdmin } = getAuthState();
-  const here = location.hash || "#/";
-  const link = (href, label) => `<a href="${href}" class="${here === href || (href !== "#/" && here.startsWith(href)) ? "active" : ""}">${label}</a>`;
+  const [, pg] = routeParts(); const cur = isHashRoute() ? location.hash : location.pathname;
+  const on = (href) => (href === "/jobs/" ? !isHashRoute() && (pg === "" || pg === "job") : cur.startsWith(href));
+  const link = (href, label) => `<a href="${href}" class="${on(href) ? "active" : ""}">${label}</a>`;
   const role = profile?.role;
   $("#nav").innerHTML = [
-    link("#/", "Find jobs"),
+    link("/jobs/", "Find jobs"),
+    !user ? link("/employers/", "For employers") : "",
     !user || role === "employer" ? link("#/post", "Post a job").replace('class="', 'class="nav-post ') : "",
     role === "employer" ? link("#/my", "My posts") : "",
     role === "jobseeker" ? link("#/applications", "My applications") : "",
@@ -831,7 +874,7 @@ function renderGear() {
       </div>
       <div class="set-group">
         <a class="set-item" href="#/support">${GI.help}Contact support</a>
-        <a class="set-item" href="#/safety">${GI.shield}Safety tips</a>
+        <a class="set-item" href="/safety/">${GI.shield}Safety tips</a>
         <a class="set-item" href="#/terms">${GI.doc}Terms &amp; privacy</a>
       </div>
       <div class="set-group"><button class="set-item danger" data-action="signout">${GI.out}Sign out</button></div>
@@ -904,7 +947,7 @@ async function getMyApps() {
 }
 
 async function viewList() {
-  document.title = "Job Search PH — Jobs in Negros Occidental";
+  document.title = IDENTITY.homeTitle;
   const { user } = getAuthState();
   const cityList = CITIES.filter((c) => c !== "Other");
   const { profile: pf0 } = getAuthState();
@@ -912,7 +955,7 @@ async function viewList() {
   app.innerHTML = `
     <section class="board-head">
       <h1>Jobs in Negros Occidental</h1>
-      <p class="board-sub">Household, service and local work from employers in Bacolod and nearby towns. Free to apply, with no agency fees.</p>
+      <p class="board-sub">${esc(IDENTITY.line)} Household, service and local work from employers in Bacolod and nearby towns. Free to apply, with no agency fees.</p>
       <form class="search2" id="search" role="search">
         <div class="field ac"><span class="ico">${ICON.search}</span><label class="sr" for="q">What</label>
           <input type="search" id="q" name="q" placeholder="Job, like yaya or driver" value="${esc(filters.q)}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="q-list" aria-autocomplete="list">
@@ -944,9 +987,10 @@ async function viewList() {
       <aside class="board-side">
         ${role0 !== "jobseeker" ? `<section class="side-hire">
           <h2>Hiring?</h2>
-          <p>Post a job for free. Jobseekers apply with their full profile, and you message them here.</p>
-          <ol><li>Describe the job and the pay</li><li>We check it, usually within a day</li><li>Applicants come to you</li></ol>
+          <p>Reach local jobseekers. People nearby apply with their full profile, and every applicant lands in one inbox.</p>
+          <ol><li>Describe the job and the pay</li><li>We check it, usually within a day</li><li>Applicants come to your inbox</li></ol>
           <a class="btn btn-ink btn-block" href="#/post" ${user ? "" : `data-action="gosignin" data-intent="employer" data-purpose="Sign in to post a job"`}>Post a job</a>
+          <a class="side-more" href="/employers/">How it works for employers</a>
         </section>` : ""}
         ${!user ? `<section class="side-seek">
           <h2>Looking for work?</h2>
@@ -956,7 +1000,7 @@ async function viewList() {
         <section class="side-safe">
           <h2>Stay safe</h2>
           <p>Real employers never ask you to pay to apply, train or get hired.</p>
-          <a href="#/safety">Read the safety tips</a>
+          <a href="/safety/">Read the safety tips</a>
         </section>
       </aside>
     </div>`;
@@ -1117,7 +1161,7 @@ function card(j, applied, km) {
   const isNew = when && Date.now() - when < NEW_MS;
   const pay = payParts(j);
   return `
-  <a class="card jrow ${j.featured ? "card-featured" : ""}" href="#/job/${encodeURIComponent(j.id)}">
+  <a class="card jrow ${j.featured ? "card-featured" : ""}" href="/jobs/${encodeURIComponent(j.id)}/">
     <div class="jrow-main">
       <div class="jrow-title"><h3>${esc(j.title)}</h3>${applied ? `<span class="jtag-applied">Applied</span>` : isNew ? `<span class="jtag-new">New</span>` : ""}${j.featured ? `<span class="jtag-feat">Featured</span>` : ""}</div>
       <p class="jrow-emp">${esc(j.employerName)} ${verifiedBadge(j.ownerUid, { short: true })}${founderBadge(j.ownerUid, "employer", { short: true })}</p>
@@ -1174,11 +1218,9 @@ async function viewJob(id) {
     </article>`;
 
   $("#share").addEventListener("click", async () => {
-    // The static page has a proper Facebook/Messenger preview. New posts get one within ~2 hours;
-    // until then, share the app link so the link never 404s.
+    // The job's own address. Its page has a proper Facebook/Messenger preview once it's built (every ~2 hours).
     const staticUrl = `https://jobsearchph.com/jobs/${encodeURIComponent(j.id)}/?src=share`;
-    let url = `https://jobsearchph.com/?src=share#/job/${encodeURIComponent(j.id)}`;
-    try { const r = await fetch(`/jobs/${encodeURIComponent(j.id)}/`, { method: "HEAD", cache: "no-store" }); if (r.ok) url = staticUrl; } catch {}
+    const url = staticUrl; // brand-new posts open through the app until their page is built (see 404.html)
     try {
       // Link only: with extra text, "Copy" in some share menus pastes the text into the link and breaks it.
       if (navigator.share) await navigator.share({ title: `${j.title} — ${j.city} | Job Search PH`, url });
@@ -1222,12 +1264,12 @@ async function renderApplyPanel(j, isOwner) {
     return;
   }
   if (!profile) {
-    returnTo = location.hash;
+    returnTo = here();
     panel.innerHTML = `<h2>Apply for this job</h2><p class="muted">Finish your profile first. It only takes a minute.</p><a class="btn btn-primary btn-block" href="#/profile">Finish my profile</a>`;
     return;
   }
   if (profile.role !== "jobseeker") {
-    returnTo = location.hash;
+    returnTo = here();
     panel.innerHTML = `<h2>Apply for this job</h2><p class="muted">You're signed in as an employer. Switch your profile to "I'm looking for work" to apply.</p><a class="btn btn-ghost btn-block" href="#/profile">Change profile type</a>`;
     return;
   }
@@ -1263,7 +1305,7 @@ async function renderApplyPanel(j, isOwner) {
   if (employed && isFullTime(j.schedule || j.employmentType, j.arrangement)) {
     panel.innerHTML = `
       <h2>You're employed full-time</h2>
-      <p class="muted">You were hired for <a href="#/job/${encodeURIComponent(employed.jobId)}">${esc(employed.jobTitle)}</a>, so you can't apply to other full-time jobs right now. Part-time jobs are still open to you.</p>
+      <p class="muted">You were hired for <a href="/jobs/${encodeURIComponent(employed.jobId)}/">${esc(employed.jobTitle)}</a>, so you can't apply to other full-time jobs right now. Part-time jobs are still open to you.</p>
       <p class="small muted">Did that job end? Update it in <a href="#/applications">My applications</a>.</p>`;
     return;
   }
@@ -2493,7 +2535,7 @@ async function viewMy() {
       const a = by[j.id] || []; const fresh = a.filter((x) => x.status === "new").length;
       return `
       <div class="trow">
-        <div><a href="#/job/${encodeURIComponent(j.id)}"><strong>${esc(j.title)}</strong></a> ${statusBadge(j)}
+        <div><a href="/jobs/${encodeURIComponent(j.id)}/"><strong>${esc(j.title)}</strong></a> ${statusBadge(j)}
           <div class="muted small">${esc(j.city)} · posted ${ago(j.createdAt)}${j.expiresAt ? ` · ${isLive(j) ? "expires" : "expired"} ${new Date(j.expiresAt).toLocaleDateString("en-PH")}` : ""}</div>
           ${j.status === "pending" && j.infoNote ? `<div class="info-ask"><strong>We need a bit more before approving this post:</strong> ${esc(j.infoNote)}.<span class="small muted"> Add your Facebook link or permit on your <a href="#/profile">profile</a>, or send the rest to us.</span><a class="btn btn-primary btn-sm" href="#/support" data-reply-info="${esc(j.id)}">Reply to Job Search PH</a></div>` : ""}</div>
         <div><a class="btn btn-ghost btn-sm" href="#/applicants/${encodeURIComponent(j.id)}">${a.length} applicant${a.length === 1 ? "" : "s"}${fresh ? ` <span class="dot">${fresh} new</span>` : ""}</a></div>
@@ -2502,7 +2544,7 @@ async function viewMy() {
   };
   $("#mine").addEventListener("click", async (e) => {
     const r = e.target.closest("[data-reply-info]");
-    if (r) { const t = e.target.closest(".trow")?.querySelector("strong")?.textContent || ""; supportPrefill = { topic: "A job post or employer", message: `About my post "${t}" (ID ${r.dataset.replyInfo}):\n`, page: `#/job/${r.dataset.replyInfo}` }; return; }
+    if (r) { const t = e.target.closest(".trow")?.querySelector("strong")?.textContent || ""; supportPrefill = { topic: "A job post or employer", message: `About my post "${t}" (ID ${r.dataset.replyInfo}):\n`, page: `/jobs/${r.dataset.replyInfo}/` }; return; }
     const b = e.target.closest("[data-close]"); if (!b) return;
     if (!confirmInline(b, "Click again to close")) return;
     try { await store.updateJob(b.dataset.close, { status: "closed" }); jobsCache = null; toast("Post closed"); draw(); } catch { toast("Could not close post"); }
@@ -2596,7 +2638,7 @@ async function viewApplicants(jobId) {
     const openings = Number(job.openings) || 1;
     const filled = job.status === "approved" && counts.hired >= openings;
     app.innerHTML = `
-      <p><a href="${adminView ? `#/job/${encodeURIComponent(job.id)}` : "#/my"}" class="back">← ${adminView ? "Back to the post" : "My posts"}</a></p>
+      <p><a href="${adminView ? `/jobs/${encodeURIComponent(job.id)}/` : "#/my"}" class="back">← ${adminView ? "Back to the post" : "My posts"}</a></p>
       <div class="page-head"><div><h1>Applicants</h1><p class="muted">${esc(job.title)} · ${esc(job.city)} ${statusBadge(job)}</p></div></div>
       ${adminView ? `<p class="notice small">Admin view: you can see who applied, but only the employer can shortlist, offer or message.</p>` : ""}
       ${filled && !adminView ? `<div class="notice filled"><div><strong>All ${openings} opening${openings === 1 ? " is" : "s are"} filled.</strong> Close the post so it leaves search and the other applicants know.</div><button class="btn btn-primary btn-sm" id="close-filled">Close the post</button></div>` : ""}
@@ -2654,9 +2696,9 @@ async function viewApplications() {
   if (!$("#apps")) return;
   $("#apps").innerHTML = apps.length ? `<div class="table">${apps.map((a) => `
     <div class="trow ${DECLINED.includes(a.status) ? "declined" : ""}">
-      <div><a href="#/job/${encodeURIComponent(a.jobId)}"><strong>${esc(a.jobTitle)}</strong></a><div class="muted small">${esc(a.jobCity || "")} · applied ${ago(a.createdAt)}${DECLINED.includes(a.status) ? ` · ${chatClosedText(chatState(a))}` : ""}</div></div>
+      <div><a href="/jobs/${encodeURIComponent(a.jobId)}/"><strong>${esc(a.jobTitle)}</strong></a><div class="muted small">${esc(a.jobCity || "")} · applied ${ago(a.createdAt)}${DECLINED.includes(a.status) ? ` · ${chatClosedText(chatState(a))}` : ""}</div></div>
       <div>${a.status === "hired" && a.employmentEnded ? `<span class="badge badge-closed">Job ended</span>` : appBadge(a.status)}</div>
-      <div class="actions"><a class="btn btn-ghost btn-sm" href="#/chat/${encodeURIComponent(a.id)}">${chatState(a).open ? "Message" : "View chat"}</a><a class="btn btn-ghost btn-sm" href="#/job/${encodeURIComponent(a.jobId)}">View job</a>${a.status === "hired" && !a.employmentEnded ? employmentHtml(a) : ""}${offerHtml(a)}</div>
+      <div class="actions"><a class="btn btn-ghost btn-sm" href="#/chat/${encodeURIComponent(a.id)}">${chatState(a).open ? "Message" : "View chat"}</a><a class="btn btn-ghost btn-sm" href="/jobs/${encodeURIComponent(a.jobId)}/">View job</a>${a.status === "hired" && !a.employmentEnded ? employmentHtml(a) : ""}${offerHtml(a)}</div>
     </div>`).join("")}</div>`
     : `<div class="empty"><p><strong>No applications yet.</strong></p><p class="muted">Find a job you like and tap Apply.</p><p><a class="btn btn-primary" href="#/">Browse jobs</a></p></div>`;
   const hiredNow = apps.find((a) => a.status === "hired" && !a.employmentEnded && isFullTime(a.jobSchedule, a.jobArrangement));
@@ -2855,7 +2897,7 @@ async function viewChat(appId) {
         <a href="#/messages" class="back" aria-label="Back to messages">←</a>
         ${avatar(name, iAmEmployer ? x.photo : "")}
         <div class="chat-who"><span class="chat-name"><strong>${esc(name)}</strong>${(iAmEmployer ? verifiedBadge(a.applicantUid, { short: true }) + founderBadge(a.applicantUid, "jobseeker", { short: true }) : verifiedBadge(a.employerUid, { short: true }) + founderBadge(a.employerUid, "employer", { short: true }))}</span>
-          <span class="muted small">${iAmEmployer ? `${x.age ? `${esc(x.age)} · ` : ""}${esc(livesIn(x))} · ` : ""}<a href="#/job/${encodeURIComponent(a.jobId)}">${esc(a.jobTitle)}</a></span></div>
+          <span class="muted small">${iAmEmployer ? `${x.age ? `${esc(x.age)} · ` : ""}${esc(livesIn(x))} · ` : ""}<a href="/jobs/${encodeURIComponent(a.jobId)}/">${esc(a.jobTitle)}</a></span></div>
         <span id="chat-badge"></span>
       </header>
       <div id="chat-banner"></div>
@@ -2899,7 +2941,7 @@ async function viewChat(appId) {
       const mine = adminView ? m.fromUid === a.employerUid : m.fromUid === me;
       const photo = safePhoto(m.photo);
       const flags = mine && !adminView ? [] : scamFlags(m.text);
-      const warn = flags.length ? `<div class="msg-warn">⚠ Careful: this message ${esc(flags.map((f) => f.label).join(", "))}. ${!adminView && !iAmEmployer ? `Real employers never ask you to pay, or for codes or ID numbers. <a href="#/job/${encodeURIComponent(a.jobId)}">Report this post</a>` : adminView ? "" : "Don't share codes or account numbers."}</div>` : "";
+      const warn = flags.length ? `<div class="msg-warn">⚠ Careful: this message ${esc(flags.map((f) => f.label).join(", "))}. ${!adminView && !iAmEmployer ? `Real employers never ask you to pay, or for codes or ID numbers. <a href="/jobs/${encodeURIComponent(a.jobId)}/">Report this post</a>` : adminView ? "" : "Don't share codes or account numbers."}</div>` : "";
       return `${sep}<div class="msg ${mine ? "mine" : "theirs"}">${adminView ? `<span class="msg-who">${esc(m.fromUid === a.employerUid ? a.employerName || "Employer" : x.fullName || "Applicant")}</span>` : ""}${photo ? `<img class="msg-photo" src="${photo}" alt="Photo" loading="lazy">` : ""}${m.text ? `<p>${nl2br(m.text)}</p>` : ""}<small>${m.pending ? "Sending…" : fmt(m.createdAt)}</small></div>${warn}`;
     }).join("");
     if (msgs.length !== lastCount) { body.scrollTop = body.scrollHeight; lastCount = msgs.length; }
@@ -2999,7 +3041,7 @@ function viewConfirmEmail() {
     <ul class="ce-tips small muted"><li>It comes from <strong>noreply@jobsearchph.com</strong>. Check <strong>Spam</strong> and <strong>Promotions</strong> too.</li><li>Wrong email? <button type="button" class="linkbtn" data-ce="out">Sign out</button> and create your account again.</li></ul>
   </div></div>`;
   const msg = (t, ok) => { const m = $("#ce-msg"); m.textContent = t; m.hidden = !t; m.classList.toggle("ok", !!ok); };
-  const done = () => { if (confirmWatch) { document.removeEventListener("visibilitychange", confirmWatch); confirmWatch = null; } toast("Email confirmed. Welcome!"); const to = returnTo; returnTo = ""; if (to && to !== location.hash) location.hash = to; else route(); };
+  const done = () => { if (confirmWatch) { document.removeEventListener("visibilitychange", confirmWatch); confirmWatch = null; } toast("Email confirmed. Welcome!"); const to = returnTo; returnTo = ""; if (to) go(to); else route(); };
   app.querySelector(".ce-card").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-ce]"); if (!b) return;
     if (b.dataset.ce === "out") { await signOutAndReload(); return; }
@@ -3246,7 +3288,7 @@ async function viewAdminUser(id) {
     fact("Signs in with", u.signIn === "google" ? "Google" : u.signIn === "facebook" ? "Facebook" : u.signIn === "password" ? `Email &amp; password${u.emailVerified ? " (confirmed)" : " (not confirmed)"}` : ""),
     fact("User ID", `<span class="copyable small">${esc(u.id)}</span>`),
   ];
-  const appRow = (a, who) => `<li><a href="#/job/${encodeURIComponent(a.jobId)}">${esc(a.jobTitle)}</a><span class="muted small">${who} · ${ago(a.createdAt)}</span>${appBadge(a.status, true)}</li>`;
+  const appRow = (a, who) => `<li><a href="/jobs/${encodeURIComponent(a.jobId)}/">${esc(a.jobTitle)}</a><span class="muted small">${who} · ${ago(a.createdAt)}</span>${appBadge(a.status, true)}</li>`;
   app.innerHTML = `
     <p><a href="#/admin/users" class="back">← Users</a></p>
     <div class="au-wrap">
@@ -3262,7 +3304,7 @@ async function viewAdminUser(id) {
           <div><span class="label">Jobs they want</span>${wantList(u).length ? `<ul class="meta">${wantList(u).map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : `<p><span class="none">Not added</span></p>`}</div>
           <div><span class="label">Skills</span><p>${u.skills ? esc(u.skills) : `<span class="none">Not added</span>`}</p></div>
           <div><span class="label">Work history</span><p>${u.workHistory ? nl2br(u.workHistory) : `<span class="none">Not added</span>`}</p></div></div>` : ""}
-        ${!isSeeker ? `<h2>Job posts (${d.posts.length})</h2>${d.posts.length ? `<ul class="au-list">${d.posts.sort((a, b) => b.createdAt - a.createdAt).map((j) => `<li><a href="#/job/${encodeURIComponent(j.id)}">${esc(j.title)}</a><span class="muted small">${esc(j.city)} · ${salaryText(j)} · ${ago(j.createdAt)} · ${(() => { const n = d.received.filter((a) => a.jobId === j.id).length; return n ? `<a href="#/applicants/${encodeURIComponent(j.id)}">${n} applicant${n === 1 ? "" : "s"}</a>` : "0 applicants"; })()}</span>${statusBadge(j)}</li>`).join("")}</ul>` : `<p class="muted">No posts.</p>`}` : ""}
+        ${!isSeeker ? `<h2>Job posts (${d.posts.length})</h2>${d.posts.length ? `<ul class="au-list">${d.posts.sort((a, b) => b.createdAt - a.createdAt).map((j) => `<li><a href="/jobs/${encodeURIComponent(j.id)}/">${esc(j.title)}</a><span class="muted small">${esc(j.city)} · ${salaryText(j)} · ${ago(j.createdAt)} · ${(() => { const n = d.received.filter((a) => a.jobId === j.id).length; return n ? `<a href="#/applicants/${encodeURIComponent(j.id)}">${n} applicant${n === 1 ? "" : "s"}</a>` : "0 applicants"; })()}</span>${statusBadge(j)}</li>`).join("")}</ul>` : `<p class="muted">No posts.</p>`}` : ""}
         ${isSeeker ? `<h2>Applications (${d.applied.length})</h2>${d.applied.length ? `<ul class="au-list">${d.applied.sort((a, b) => b.createdAt - a.createdAt).map((a) => appRow(a, esc(a.employerName || ""))).join("")}</ul>` : `<p class="muted">No applications.</p>`}` : ""}
       </section>
       <aside class="au-side">
@@ -3551,9 +3593,9 @@ async function renderAnalytics(body) {
       <h2 class="an-h">"Other" job types <span class="an-sub">what people typed when no category fit, all time — promote the common ones to real categories</span></h2>
       <div class="an-grid two">${anRank(otherTypes, { title: "Employers are hiring for", sub: otherTypes.length ? `${otherTotal} post${otherTotal === 1 ? "" : "s"} used “Other”` : "" })}
         ${anRank(seekOtherRows, { title: "Jobseekers are looking for", sub: seekOtherRows.length ? `${seekers.filter((u) => u.jobCategoryOther).length} jobseeker${seekers.filter((u) => u.jobCategoryOther).length === 1 ? "" : "s"} picked “Other”` : "" })}
-        <div class="an-card"><h3>Latest entries</h3>${otherLatest.length ? `<ul class="an-att">${otherLatest.map((j) => `<li><span class="an-why">${esc(j.categoryOther)}</span><a href="#/job/${encodeURIComponent(j.id)}">${esc(j.title)}</a><span class="muted small">${esc(j.city)} · ${ago(j.createdAt)}</span></li>`).join("")}</ul>` : `<p class="muted small">No “Other” posts yet.</p>`}</div></div>
+        <div class="an-card"><h3>Latest entries</h3>${otherLatest.length ? `<ul class="an-att">${otherLatest.map((j) => `<li><span class="an-why">${esc(j.categoryOther)}</span><a href="/jobs/${encodeURIComponent(j.id)}/">${esc(j.title)}</a><span class="muted small">${esc(j.city)} · ${ago(j.createdAt)}</span></li>`).join("")}</ul>` : `<p class="muted small">No “Other” posts yet.</p>`}</div></div>
       <h2 class="an-h">Needs attention <span class="an-sub">${att.length ? `${att.length} item${att.length === 1 ? "" : "s"}` : ""}</span></h2>
-      <div class="an-card">${att.length ? `<ul class="an-att">${att.map(([why, j, when]) => `<li><span class="an-why">${esc(why)}</span><a href="#/job/${encodeURIComponent(j.id)}">${esc(j.title)}</a><span class="muted small">${esc(j.employerName || "")} · ${esc(j.city)} · ${esc(when)}</span></li>`).join("")}</ul>` : `<p class="muted">Nothing needs attention right now.</p>`}</div>
+      <div class="an-card">${att.length ? `<ul class="an-att">${att.map(([why, j, when]) => `<li><span class="an-why">${esc(why)}</span><a href="/jobs/${encodeURIComponent(j.id)}/">${esc(j.title)}</a><span class="muted small">${esc(j.employerName || "")} · ${esc(j.city)} · ${esc(when)}</span></li>`).join("")}</ul>` : `<p class="muted">Nothing needs attention right now.</p>`}</div>
       <div id="an-tip" class="an-tip" hidden></div>`;
 
     body.querySelectorAll("[data-range]").forEach((b) => b.addEventListener("click", () => { anRange = Number(b.dataset.range); draw(); }));
@@ -3728,7 +3770,7 @@ async function viewAdmin() {
       <article class="adm-card">
         <div class="adm-card-main">
           <div class="adm-tags"><span class="adm-tag ${serious ? "red" : "amber"}">${esc(REPORT_REASONS[r.reason] || r.reason)}</span>${j ? statusBadge(j) : ""}</div>
-          <h3 class="adm-title">${j ? `<a href="#/job/${encodeURIComponent(r.jobId)}">${esc(j.title)}</a>` : `<span class="muted">Job deleted</span>`}</h3>
+          <h3 class="adm-title">${j ? `<a href="/jobs/${encodeURIComponent(r.jobId)}/">${esc(j.title)}</a>` : `<span class="muted">Job deleted</span>`}</h3>
           ${r.details ? `<blockquote class="adm-quote">${esc(r.details)}</blockquote>` : ""}
           <p class="adm-meta">${j ? `${esc(j.employerName || "")}${j.ownerUid ? ` · <a href="#/admin/user/${encodeURIComponent(j.ownerUid)}">Employer profile</a>` : ""} · ` : ""}Reported ${ago(r.createdAt)}</p>
         </div>
@@ -3819,8 +3861,8 @@ async function viewAdmin() {
         const wasLive = aj && aj.approvedAt && aj.expiresAt && aj.expiresAt > Date.now();
         await store.approve(id, aj);
         if (aj) store.notify(aj.ownerUid, wasLive
-          ? { type: "job_approved", title: "Your changes are live", body: `The changes to ${aj.title} are approved and the post is visible again.`, link: `#/job/${id}`, jobId: id }
-          : { type: "job_approved", title: "Your job post is live", body: `${aj.title} is now visible to jobseekers for 30 days.`, link: `#/job/${id}`, jobId: id }).catch(() => {});
+          ? { type: "job_approved", title: "Your changes are live", body: `The changes to ${aj.title} are approved and the post is visible again.`, link: `/jobs/${id}/`, jobId: id }
+          : { type: "job_approved", title: "Your job post is live", body: `${aj.title} is now visible to jobseekers for 30 days.`, link: `/jobs/${id}/`, jobId: id }).catch(() => {});
       }
       if (act === "reject") {
         await store.updateJob(id, { status: "rejected" });
@@ -3891,6 +3933,13 @@ function legalPage(title, intro, sections) {
       <div class="legal-contact"><strong>Questions?</strong> Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>, message us on <a href="${SUPPORT_MESSENGER}" target="_blank" rel="noopener">Messenger</a> (<a href="${SUPPORT_FACEBOOK}" target="_blank" rel="noopener">facebook.com/thejobsearchph</a>), or use <a href="#/support">Contact support</a>. We're based in Bacolod City and serve Negros Occidental.</div>
     </article>`;
 }
+function viewEmployers() {
+  const { user, profile } = getAuthState();
+  document.title = IDENTITY.employersTitle;
+  const cta = !user ? 'href="/#/join/employer"' : profile?.role === "jobseeker" ? 'href="#/profile"' : 'href="#/post"';
+  app.innerHTML = `<div class="emp-page">${employersHtml(cta)}</div>`;
+}
+
 function viewStatic(page) {
   const faq = (q, a) => `<details class="faq"><summary>${q}</summary><div>${a}</div></details>`;
   const pages = {
@@ -4006,7 +4055,7 @@ let lastUid;
 async function route() {
   renderNav();
   $("#nav").classList.remove("open"); $("#nav-toggle").setAttribute("aria-expanded", "false");
-  const [, page, arg, arg2] = (location.hash || "#/").split("/");
+  const [, page, arg, arg2] = routeParts();
   window.scrollTo(0, 0);
   const { user, profile, banned, isAdmin } = getAuthState();
   if (authAction) return viewAuthAction();
@@ -4014,22 +4063,29 @@ async function route() {
   if (user && banned && !isAdmin && !["support", "safety", "terms", "privacy"].includes(page || "")) return viewSuspended(banned);
   // Email + password accounts confirm their email before using the site (Google/Facebook are already confirmed).
   if (user && getAuthState().mustConfirmEmail && !isAdmin && !["safety", "terms", "privacy", "support", "delete-account"].includes(page || "")) {
-    if (page && page !== "signin" && !returnTo) returnTo = location.hash;
+    if (page && page !== "signin" && !returnTo) returnTo = here();
     return viewConfirmEmail();
   }
   // Everyone needs a first and last name. Older one-word profiles are sent to fix it.
   if (user && profile && !isAdmin && !isFullName(profile.fullName) && !["profile", "safety", "terms", "privacy", "support", "delete-account"].includes(page || "")) {
-    if (!returnTo && page) returnTo = location.hash;
+    if (!returnTo && page) returnTo = here();
     location.hash = "#/profile"; return;
   }
   // New accounts finish their profile first; browsing jobs and reading info pages still work.
   if (user && !profile && !["", "job", "profile", "signin", "safety", "terms", "privacy", "support", "delete-account", "signedout"].includes(page || "")) {
-    if (!returnTo) returnTo = location.hash;
+    if (!returnTo) returnTo = here();
     location.hash = "#/profile"; return;
   }
   if (!page) return viewList();
   // Keep only the ID: share menus sometimes glue the title/text onto the link ("…/job/abc123%20Live-in%20Yaya").
-  if (page === "job" && arg) { let raw = arg; try { raw = decodeURIComponent(arg); } catch {} const id = (raw.match(/^[A-Za-z0-9_-]+/) || [""])[0]; if (id && id !== raw) { history.replaceState(null, "", `${location.pathname}${location.search}#/job/${id}`); } return viewJob(id); }
+  if (page === "job" && arg) {
+    let raw = arg; try { raw = decodeURIComponent(arg); } catch {} const id = (raw.match(/^[A-Za-z0-9_-]+/) || [""])[0];
+    // Old #/job/<id> links (emails, shares, ads) move to the job's real address. This also drops any text glued onto the id.
+    if (id && (isHashRoute() || id !== raw)) history.replaceState(null, "", `/jobs/${id}/${location.search}`);
+    return viewJob(id);
+  }
+  if ((page === "safety" || page === "employers") && isHashRoute()) history.replaceState(null, "", `/${page}/${location.search}`);
+  if (page === "employers") return viewEmployers();
   if (page === "join") { // tracked links for ads: open sign-up, already set as jobseeker or employer
     if (user) { location.hash = profile ? (arg === "employer" ? "#/post" : "#/") : "#/profile"; return; }
     signupIntent = arg === "employer" ? "employer" : "jobseeker"; startSignup = true;
@@ -4051,10 +4107,15 @@ async function route() {
   if (page === "admin" && arg === "user" && arg2) return viewAdminUser(decodeURIComponent(arg2));
   if (page === "admin") { if (["analytics", "users", "pending", "approved", "reports", "flags", "verify", "support", "rejected", "closed"].includes(arg)) adminTab = arg; return viewAdmin(); }
   if (["safety", "terms", "privacy"].includes(page)) return viewStatic(page);
-  location.hash = "#/";
+  go("/");
 }
 
 window.addEventListener("hashchange", route);
+// 404.html sends addresses that have no page file here as ?p=/jobs/<id>/ (brand-new jobs, and every job on the test site).
+{ const q = new URLSearchParams(location.search); const p = q.get("p");
+  if (p !== null) { q.delete("p"); const qs = q.toString();
+    const ok = /^\/(jobs\/[A-Za-z0-9_-]{1,64}|employers|safety|jobs)\/?$/.test(p);
+    history.replaceState(null, "", (ok ? p : "/") + (qs ? `?${qs}` : "") + location.hash); } }
 initPixel();
 setTheme(getTheme());
 let foundersLoaded = false;

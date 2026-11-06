@@ -1,16 +1,19 @@
-// Builds one static page per live job at /jobs/<id>/ so Google can index it,
-// with JobPosting structured data for Google for Jobs. Also rewrites sitemap.xml.
+// Builds the public pages Google can index, each a copy of index.html (so the full app runs on it)
+// with its own title, description, canonical address and pre-filled content:
+//   /jobs/<id>/  one per live job, with JobPosting structured data for Google for Jobs
+//   /jobs/       the list of open jobs
+//   /employers/  and /safety/  (no database needed)
+// Also rewrites sitemap.xml.
 //
-// The app itself uses #/job/<id> links, which search engines treat as the home page.
-// These static pages give every job its own real URL.
-//
-// Run:   node scripts/build-job-pages.mjs
+// Run:   node scripts/build-job-pages.mjs                 (live: the robot runs this every 2 hours)
+//        node scripts/build-job-pages.mjs --static-only   (on every deploy: rebuilds /employers/ and /safety/ only)
 // Test:  node scripts/build-job-pages.mjs --fixture scripts/sample-jobs.json
 // No dependencies. Reads only approved jobs, which are public under firestore.rules.
 
 import { readFile, writeFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { IDENTITY, employersHtml } from "../assets/pages.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SITE = "https://jobsearchph.com";
@@ -20,8 +23,13 @@ const JOBS_DIR = join(ROOT, "jobs");
 
 async function readConfig() {
   const src = await readFile(join(ROOT, "assets/firebase-config.js"), "utf8");
-  const pick = (k) => src.match(new RegExp(`${k}:\\s*"([^"]+)"`))?.[1];
-  return { apiKey: pick("apiKey"), projectId: pick("projectId") };
+  // Read the LIVE block only. The file also holds the test site's config, and that one comes first.
+  const live = src.match(/LIVE_CONFIG\s*=\s*\{([\s\S]*?)\}/)?.[1];
+  if (!live) throw new Error("LIVE_CONFIG not found in assets/firebase-config.js");
+  const pick = (k) => live.match(new RegExp(`${k}:\\s*"([^"]+)"`))?.[1];
+  const cfg = { apiKey: pick("apiKey"), projectId: pick("projectId") };
+  if (cfg.projectId !== "job-search-ph-website") throw new Error(`Refusing to build live job pages from project "${cfg.projectId}"`);
+  return cfg;
 }
 
 // Firestore REST values → plain JS.
@@ -152,60 +160,26 @@ function jobPosting(j) {
 
 /* ---------- HTML ---------- */
 
-const ASSET_V = "1793025560";
-
+// Every page is index.html with its own head and pre-filled content, so it always matches the live site.
+let TEMPLATE = "";
 function shell({ title, description, canonical, body, head = "" }) {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3d4fd6">
-  <title>${esc(title)}</title>
-  <meta name="description" content="${esc(description)}">
-  <link rel="canonical" href="${canonical}">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="${canonical}">
-  <meta property="og:title" content="${esc(title)}">
-  <meta property="og:description" content="${esc(description)}">
-  <meta property="og:image" content="${SITE}/assets/img/logo-512.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script>try{var t=localStorage.getItem("jsph-theme")||"light";if(t!=="system")document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme="light";}</script>
-  <link rel="stylesheet" href="/assets/styles.css?v=${ASSET_V}">
-  <link rel="icon" href="/favicon.ico?v=${ASSET_V}" sizes="any">
-  <link rel="apple-touch-icon" href="/assets/img/icon-circle-192.png?v=${ASSET_V}">
-${head}
-</head>
-<body>
-  <header class="site-header">
-    <div class="wrap header-inner">
-      <a href="/" class="brand" aria-label="Job Search PH home">
-        <img class="brand-mark" src="/assets/img/icon-circle-64.png?v=${ASSET_V}" alt="" width="38" height="38">
-        <span>Job Search PH</span>
-      </a>
-    </div>
-  </header>
-  <main class="wrap">
-${body}
-  </main>
-  <footer class="site-footer">
-    <div class="wrap footer-inner">
-      <p><strong>Job Search PH</strong> is a job listing board. We do not recruit, screen or place workers, and we never charge jobseekers.</p>
-      <p><a href="/#/safety">Safety tips &amp; FAQs</a> · <a href="/#/support">Contact support</a> · <a href="/#/terms">Terms</a> · <a href="/#/privacy">Privacy</a></p>
-    </div>
-  </footer>
-</body>
-</html>
-`;
+  let h = TEMPLATE;
+  const put = (re, val) => { if (!re.test(h)) throw new Error(`index.html is missing ${re}`); h = h.replace(re, () => val); };
+  put(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`);
+  put(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(description)}">`);
+  put(/<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${canonical}">`);
+  put(/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${canonical}">`);
+  put(/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${esc(title)}">`);
+  put(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${esc(description)}">`);
+  put(/<\/head>/, `${head ? `${head}\n` : ""}</head>`);
+  put(/(<main id="app"[^>]*>)[\s\S]*?(<\/main>)/, `<main id="app" class="wrap" tabindex="-1">\n${body}\n  </main>`);
+  return h;
 }
 
 function jobPage(j) {
   const where = [j.area, j.city].filter(Boolean).join(", ");
   const title = `${j.title} — ${j.city} | Job Search PH`;
   const description = `${j.title} in ${where}. ${salaryText(j)}. ${j.employmentType || ""}. Apply free on Job Search PH.`.replace(/\s+/g, " ").replace(/\. \./g, ".");
-  const appLink = `/#/job/${encodeURIComponent(j.id)}`;
   const conds = conditions(j);
   const reqs = requirements(j);
   const body = `    <p><a href="/jobs/" class="back">← All jobs</a></p>
@@ -225,7 +199,6 @@ function jobPage(j) {
         <div class="panel">
           <strong>Interested?</strong>
           <p>Apply for free on Job Search PH and message the employer directly.</p>
-          <a class="btn btn-primary" href="${appLink}">Apply on Job Search PH</a>
         </div>
         <div class="panel panel-warn">
           <strong>Never pay to get a job.</strong>
@@ -241,7 +214,7 @@ function jobPage(j) {
 
 function indexPage(jobs) {
   const body = `    <h1>Jobs in Negros Occidental</h1>
-    <p class="muted">${jobs.length} open job${jobs.length === 1 ? "" : "s"}. <a href="/">Search and filter on Job Search PH</a></p>
+    <p class="muted">${esc(IDENTITY.line)} ${jobs.length} open job${jobs.length === 1 ? "" : "s"}.</p>
     ${jobs.length ? `<div class="cards">${jobs.map((j) => `
       <a class="card" href="/jobs/${j.id}/">
         <h3>${esc(j.title)}</h3>
@@ -250,16 +223,27 @@ function indexPage(jobs) {
       </a>`).join("")}
     </div>` : `<p>No open jobs right now. <a href="/">Check Job Search PH</a> for new posts.</p>`}`;
   return shell({
-    title: "Jobs in Negros Occidental | Job Search PH",
-    description: "Open kasambahay, yaya, caregiver, driver, cook and local jobs in Bacolod and Negros Occidental. Free for jobseekers.",
+    title: "Local jobs in Negros Occidental | Job Search PH",
+    description: `${IDENTITY.line} Open kasambahay, yaya, caregiver, driver, cook and local jobs in Bacolod and nearby towns. Free for jobseekers.`,
     canonical: `${SITE}/jobs/`, body,
   });
+}
+
+function employersPage() {
+  return shell({ title: IDENTITY.employersTitle, description: IDENTITY.employersDescription, canonical: `${SITE}/employers/`, body: `<div class="emp-page">${employersHtml()}</div>` });
+}
+function safetyPage() {
+  const body = `    <article class="prose legal"><h1>Safety tips &amp; FAQs</h1>
+      <p>${esc(IDENTITY.line)} Real employers never ask you to pay to apply, train or get hired. If anyone asks for a fee, a deposit or your ID before an interview, stop and report the post.</p></article>`;
+  return shell({ title: IDENTITY.safetyTitle, description: IDENTITY.safetyDescription, canonical: `${SITE}/safety/`, body });
 }
 
 function sitemap(jobs) {
   const urls = [
     `  <url><loc>${SITE}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
     `  <url><loc>${SITE}/jobs/</loc><changefreq>daily</changefreq><priority>0.9</priority></url>`,
+    `  <url><loc>${SITE}/employers/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>`,
+    `  <url><loc>${SITE}/safety/</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>`,
     ...jobs.map((j) => `  <url><loc>${SITE}/jobs/${j.id}/</loc><lastmod>${iso(j.updatedAt || j.approvedAt || j.createdAt || Date.now()).slice(0, 10)}</lastmod></url>`),
   ];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}\n</urlset>\n`;
@@ -268,6 +252,12 @@ function sitemap(jobs) {
 /* ---------- Write ---------- */
 
 async function main() {
+  TEMPLATE = await readFile(join(ROOT, "index.html"), "utf8");
+  for (const [dir, html] of [["employers", employersPage()], ["safety", safetyPage()]]) {
+    await mkdir(join(ROOT, dir), { recursive: true });
+    await writeFile(join(ROOT, dir, "index.html"), html);
+  }
+  if (process.argv.includes("--static-only")) { console.log("Built /employers/ and /safety/."); return; }
   const i = process.argv.indexOf("--fixture");
   const raw = i > 0 ? JSON.parse(await readFile(process.argv[i + 1], "utf8")) : await fetchJobs();
   const now = Date.now();
