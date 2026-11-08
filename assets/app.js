@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794144884";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794144884";
-import { fitScore, rankApplicants } from "./match.js?v=1794144884";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794144884";
-import { initPixel, track } from "./pixel.js?v=1794144884";
-import { IDENTITY, employersHtml } from "./pages.js?v=1794144884";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794145240";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794145240";
+import { fitScore, rankApplicants } from "./match.js?v=1794145240";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794145240";
+import { initPixel, track } from "./pixel.js?v=1794145240";
+import { IDENTITY, employersHtml } from "./pages.js?v=1794145240";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -3264,6 +3264,7 @@ let adminCounts = {};
 const ADMIN_GROUPS = [["overview", "Overview"], ["review", "To review"], ["manage", "Manage"]];
 const ADMIN_SECTIONS = [
   { k: "analytics", g: "overview", label: "Analytics", icon: "chart", title: "Analytics", desc: "Visitors, sign-ups, applications and hires, and which links and ads bring people in." },
+  { k: "funnel", g: "overview", label: "Funnel", icon: "funnel", title: "Funnel", desc: "Of the people who made an account, how many reached each step. The biggest drop is where we're losing people." },
   { k: "pending", g: "review", queue: true, label: "Pending posts", icon: "inbox", title: "Pending posts", desc: "New job posts waiting for approval. Check the employer before you approve." },
   { k: "reports", g: "review", queue: true, label: "Reports", icon: "flag", title: "Reports", desc: "Job posts that users reported. Close the post or dismiss the report." },
   { k: "flags", g: "review", queue: true, label: "Chat flags", icon: "alert", title: "Chat flags", desc: "Chat messages that look like a scam: money, fees, one-time codes, ID numbers or odd links. Checked automatically. Open the chat to see the whole conversation." },
@@ -3280,6 +3281,7 @@ const IS_STAGING_SITE = /staging\./.test(location.hostname);
 const _i = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ADMIN_ICONS = {
   chart: _i('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
+  funnel: _i('<path d="M3 4h18l-7 8v6l-4 2v-8z"/>'),
   inbox: _i('<path d="M3 13h5l2 3h4l2-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/>'),
   flag: _i('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
   alert: _i('<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>'),
@@ -3669,6 +3671,79 @@ function anRank(rows, { title, sub, unit = "" }) {
     ${rows.length ? `<ul class="an-rank">${rows.map((r) => `<li data-tip="${esc(`${r.label}: ${r.tipV ?? fmtN(r.v)}${unit}`)}"><span class="an-rl">${esc(r.label)}</span><span class="an-rb"><i style="width:${(r.v / max) * 100}%"></i></span><span class="an-rv">${r.show ?? fmtN(r.v)}${unit}</span></li>`).join("")}</ul>` : `<p class="muted small">No data yet.</p>`}</div>`;
 }
 
+/* ---------------- Admin funnel ----------------
+   Cohort view: people who made an account in the chosen period, and the furthest step each one reached.
+   Every step counts the same people, so each % is "of the step before". */
+const FUNNEL_FIX = {
+  "Profile ready": "Many jobseekers stop before their profile is ready. Make setup shorter or remind them by email.",
+  "Applied to a job": "Ready jobseekers aren't applying. We may need more jobs in the types and towns they want.",
+  "Got a reply": "Employers aren't answering applicants. Nudge employers to reply, or follow up with them on Messenger.",
+  "Shortlisted or offered": "Employers reply but don't move people forward. Check if applicants match what the posts ask for.",
+  "Hired": "People get shortlisted or offered, but no hire is recorded. Ask employers to mark the hire, or find out why offers fall through.",
+  "Posted a job": "Employers make an account but don't post. Offer to post for them (Post for an employer) or message them.",
+  "Post went live": "Posts aren't getting approved. Review pending posts faster, or help employers fix rejected ones.",
+  "Got an applicant": "Live posts get no applicants. We need more jobseekers in those job types and towns.",
+  "Replied to an applicant": "Employers have applicants but don't answer. Remind them to open their applicants.",
+  "Hired someone": "Employers talk to applicants but don't hire. Ask them what's missing.",
+};
+async function renderFunnel(body) {
+  body.innerHTML = `<div class="an-grid">${SK.rows(3)}</div>`;
+  let data;
+  try { data = await store.adminAll(); } catch (e) { console.error(e); body.innerHTML = `<div class="empty"><p>Couldn't load the funnel (${esc(e.code || e.message)}).</p></div>`; return; }
+  let src = "";
+  const draw = () => {
+    const now = Date.now(), R = anRange, from = R ? now - R * DAYMS : 0;
+    const { users, jobs, apps } = data;
+    const cohort = users.filter((u) => (!R || (u.createdAt && u.createdAt >= from)) && (!src || (src === "(none)" ? !u.src : u.src === src)));
+    const by = (key) => { const m = new Map(); apps.forEach((a) => { const k = a[key]; if (!m.has(k)) m.set(k, []); m.get(k).push(a); }); return m; };
+    const appsOf = by("applicantUid"), appsTo = by("employerUid");
+    const postsOf = new Map(); jobs.forEach((j) => { if (!postsOf.has(j.ownerUid)) postsOf.set(j.ownerUid, []); postsOf.get(j.ownerUid).push(j); });
+    const FWD = ["shortlisted", "offered", "hired", "offer_declined"];
+    const seekers = cohort.filter((u) => u.role === "jobseeker"), employers = cohort.filter((u) => u.role === "employer");
+    const seekSteps = [
+      ["Made an account", () => true],
+      ["Profile ready", (u) => profileStrength(u).score >= 40],
+      ["Applied to a job", (u) => (appsOf.get(u.id) || []).length > 0],
+      ["Got a reply", (u) => (appsOf.get(u.id) || []).some((a) => a.status !== "new")],
+      ["Shortlisted or offered", (u) => (appsOf.get(u.id) || []).some((a) => FWD.includes(a.status))],
+      ["Hired", (u) => (appsOf.get(u.id) || []).some((a) => a.status === "hired")],
+    ];
+    const empSteps = [
+      ["Made an account", () => true],
+      ["Posted a job", (u) => (postsOf.get(u.id) || []).length > 0],
+      ["Post went live", (u) => (postsOf.get(u.id) || []).some((j) => j.approvedAt)],
+      ["Got an applicant", (u) => (appsTo.get(u.id) || []).length > 0],
+      ["Replied to an applicant", (u) => (appsTo.get(u.id) || []).some((a) => a.status !== "new")],
+      ["Hired someone", (u) => (appsTo.get(u.id) || []).some((a) => a.status === "hired")],
+    ];
+    // A person counts at a step only if they also reached every step before it.
+    const run = (people, steps) => { let left = people; return steps.map(([label, ok]) => { left = left.filter(ok); return { label, n: left.length }; }); };
+    const sRows = run(seekers, seekSteps), eRows = run(employers, empSteps);
+    const worst = (rows) => rows.slice(1).map((r, i) => ({ ...r, prev: rows[i].n, lost: rows[i].n - r.n, keep: pct(r.n, rows[i].n) })).filter((r) => r.prev >= 3).sort((a, b) => a.keep - b.keep || b.lost - a.lost)[0];
+    const card = (title, rows, who) => {
+      const top = rows[0].n || 1, w = worst(rows);
+      return `<div class="an-card fn-card"><h3>${title}</h3><p class="an-sub">${fmtN(rows[0].n)} ${who} made an account ${R ? `in the last ${R} days` : "so far"}</p>
+        ${rows[0].n ? `<ol class="fn-steps">${rows.map((r, i) => {
+          const keep = i ? pct(r.n, rows[i - 1].n) : 100, isWorst = w && w.label === r.label;
+          return `<li class="${isWorst ? "fn-worst" : ""}"><span class="fn-l">${esc(r.label)}</span><span class="fn-b"><i style="width:${Math.max(r.n ? 2 : 0, (r.n / top) * 100)}%"></i></span><span class="fn-n">${fmtN(r.n)}</span><span class="fn-p">${i ? `${keep}%` : ""}</span></li>`;
+        }).join("")}</ol>
+        ${w ? `<div class="fn-fix"><strong>Biggest drop: ${esc(w.label)}</strong> · only ${w.keep}% made it (${fmtN(w.lost)} of ${fmtN(w.prev)} stopped here).<br>${esc(FUNNEL_FIX[w.label] || "")}</div>` : `<p class="muted small">Not enough people yet to point out the biggest drop (needs 3 or more at a step).</p>`}`
+        : `<p class="muted small">No ${who} made an account in this period.</p>`}</div>`;
+    };
+    const srcs = [...new Set(users.map((u) => u.src).filter(Boolean))].sort();
+    body.innerHTML = `
+      <div class="an-bar">
+        <div class="seg-mini" role="radiogroup" aria-label="Time range">${[[7, "7 days"], [30, "30 days"], [90, "90 days"], [0, "All time"]].map(([v, l]) => `<button type="button" role="radio" aria-checked="${R === v}" class="${R === v ? "on" : ""}" data-range="${v}">${l}</button>`).join("")}</div>
+        <label class="small fn-src">Came from <select id="fn-src"><option value="">Anywhere</option>${srcs.map((x) => `<option value="${esc(x)}" ${src === x ? "selected" : ""}>${esc(x)}</option>`).join("")}<option value="(none)" ${src === "(none)" ? "selected" : ""}>No tracked link</option></select></label>
+      </div>
+      <div class="an-grid two">${card("Jobseekers", sRows, "jobseekers")}${card("Employers", eRows, "employers")}</div>
+      <p class="an-sub fn-note">Each % is how many of the step before made it. Counts are from our own database, so they include everyone (not just people who allowed cookies). Visits before sign-up are under Analytics → tracked links.</p>`;
+    body.querySelectorAll("[data-range]").forEach((b) => b.addEventListener("click", () => { anRange = Number(b.dataset.range); draw(); }));
+    $("#fn-src").addEventListener("change", (e) => { src = e.target.value; draw(); });
+  };
+  draw();
+}
+
 const CHANNELS = { "fb-ad": "Facebook ad", "fb-group": "Facebook group post", "fb-page": "Facebook page post", tiktok: "TikTok", flyer: "Flyer / QR code", messenger: "Messenger / text", other: "Other" };
 const AUDIENCE = { jobseekers: "jobseekers", employers: "employers", both: "everyone" };
 function loadScript(src) {
@@ -3970,6 +4045,7 @@ async function viewAdmin() {
 
   const body = $("#admin-body");
   if (adminTab === "analytics") return renderAnalytics(body);
+  if (adminTab === "funnel") return renderFunnel(body);
   if (adminTab === "users") return renderUsers(body);
   if (adminTab === "invites") {
     const list = await store.listInvites().catch((e) => { console.error(e); return null; });
@@ -4414,7 +4490,7 @@ async function route() {
   if (page === "support") return viewSupport();
   if (page === "chat" && arg) return viewChat(decodeURIComponent(arg));
   if (page === "admin" && arg === "user" && arg2) return viewAdminUser(decodeURIComponent(arg2));
-  if (page === "admin") { if (["analytics", "invites", "users", "pending", "approved", "reports", "flags", "verify", "disputes", "support", "rejected", "closed"].includes(arg)) adminTab = arg; return viewAdmin(); }
+  if (page === "admin") { if (["analytics", "funnel", "invites", "users", "pending", "approved", "reports", "flags", "verify", "disputes", "support", "rejected", "closed"].includes(arg)) adminTab = arg; return viewAdmin(); }
   if (["safety", "terms", "privacy"].includes(page)) return viewStatic(page);
   go("/");
 }

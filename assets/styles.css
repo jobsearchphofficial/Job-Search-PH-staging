@@ -864,6 +864,22 @@ body > .site-footer { flex-shrink: 0; }
 .an-rv { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--navy); min-width: 3ch; text-align: right; }
 .an-rv em { font-style: normal; font-weight: 400; color: var(--slate); margin-left: 4px; }
 .an-funnel li { grid-template-columns: minmax(120px, 40%) 1fr auto; }
+/* Admin → Funnel */
+.fn-src { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.fn-src select { padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--navy); }
+.fn-steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; counter-reset: fn; }
+.fn-steps li { display: grid; grid-template-columns: minmax(110px, 38%) 1fr 4ch 4.5ch; gap: 10px; align-items: center; font-size: .86rem; counter-increment: fn; }
+.fn-l { color: var(--navy); }
+.fn-l::before { content: counter(fn) ". "; color: var(--slate); }
+.fn-b { height: 14px; background: var(--line-soft); border-radius: 999px; overflow: hidden; }
+.fn-b i { display: block; height: 100%; background: var(--viz-1); border-radius: 999px; }
+.fn-n { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; color: var(--navy); }
+.fn-p { text-align: right; font-variant-numeric: tabular-nums; color: var(--slate); font-size: .8rem; }
+.fn-worst .fn-l, .fn-worst .fn-p { color: var(--orange-text); font-weight: 600; }
+.fn-worst .fn-b i { background: var(--orange-text); }
+.fn-fix { margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: var(--peach); border: 1px solid var(--warn-line); color: var(--navy); font-size: .85rem; line-height: 1.45; }
+.fn-note { margin-top: 12px; }
+@media (max-width: 520px) { .fn-steps li { grid-template-columns: 1fr 4ch 4.5ch; } .fn-b { grid-column: 1 / -1; grid-row: 2; } }
 .an-stack { display: flex; gap: 2px; height: 16px; border-radius: 999px; overflow: hidden; margin: 10px 0 12px; }
 .an-stack i { display: block; background: var(--s); } .an-stack .empty-bar { background: var(--line-soft); }
 .an-legend { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 14px; font-size: .85rem; }
