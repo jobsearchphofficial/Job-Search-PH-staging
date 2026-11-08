@@ -805,6 +805,14 @@ body > .site-footer { flex-shrink: 0; }
 .draft-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 4px; padding: 10px 14px; border-radius: 12px; background: var(--green-soft); color: var(--green); font-size: .88rem; }
 .draft-note svg { width: 16px; height: 16px; }
 .draft-note .linkbtn { color: var(--navy); text-decoration: underline; }
+.invite-note { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 4px; padding: 14px 16px; border-radius: 12px; background: var(--green-soft); color: var(--green); font-size: .92rem; }
+.invite-note svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
+.invite-note strong { display: block; margin-bottom: 2px; }
+.invite-note span { color: var(--navy); }
+.invite-link { display: flex; gap: 8px; margin: 12px 0; max-width: 560px; }
+.invite-done .invite-link { margin: 16px auto; }
+.invite-link input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line, #ddd); border-radius: 10px; font: inherit; font-size: .88rem; background: var(--bg); color: var(--navy); }
+.assist-card { border-style: dashed; }
 .wh-step output { white-space: nowrap; }
 @media (max-width: 600px) { .wh { grid-template-columns: 1fr; } .wh-part { grid-template-columns: 90px 1fr; align-items: center; } }
 

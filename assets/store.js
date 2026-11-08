@@ -1,5 +1,5 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1793958073";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1794136778";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -47,7 +47,7 @@ const toMs = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : v ??
 const norm = (snap) => {
   const d = snap.data();
   const out = { id: snap.id, ...d };
-  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "editedAt", "decidedAt", "at"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
+  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "editedAt", "decidedAt", "usedAt", "at"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
   return out;
 };
 const jobsQ = async (...c) => (await F.getDocs(F.query(F.collection(db, "jobs"), ...c))).docs.map(norm);
@@ -443,6 +443,17 @@ export const store = {
     await F.updateDoc(F.doc(db, "applications", id), { ...patch, updatedAt: F.serverTimestamp() });
   },
   async withdraw(id) { await F.deleteDoc(F.doc(db, "applications", id)); },
+  // "Post for an employer": an admin prepares the post, the employer opens the link, checks it and posts it.
+  async createInvite({ label, title, d }) {
+    const a = new Uint8Array(15); crypto.getRandomValues(a);
+    const token = [...a].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+    await F.setDoc(F.doc(db, "invites", token), { label, title, d, status: "open", createdBy: uid(), createdAt: F.serverTimestamp(), expiresAt: F.Timestamp.fromMillis(Date.now() + 30 * DAY) });
+    return token;
+  },
+  async getInvite(token) { try { const s = await F.getDoc(F.doc(db, "invites", token)); return s.exists() ? norm(s) : null; } catch { return null; } },
+  async listInvites() { return (await F.getDocs(F.query(F.collection(db, "invites"), F.orderBy("createdAt", "desc"), F.limit(100)))).docs.map(norm); },
+  async cancelInvite(token) { await F.updateDoc(F.doc(db, "invites", token), { status: "cancelled" }); },
+  async useInvite(token, jobId) { await F.updateDoc(F.doc(db, "invites", token), { status: "used", usedBy: uid(), usedAt: F.serverTimestamp(), jobId }); },
 
   /* ---- Delete my account ---- */
   // Firebase only deletes a sign-in account that signed in within the last few minutes, so ask first.

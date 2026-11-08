@@ -540,6 +540,26 @@ service cloud.firestore {
                     && str(request.resource.data.reason, 1, 80) && str(request.resource.data.get('note', ''), 0, 500);
     }
 
+    // Posts an admin prepared for an employer. The doc ID is the secret part of the invite link.
+    // Anyone signed in with the link can open it; the employer who uses it marks it used. Admins manage the rest.
+    match /invites/{token} {
+      allow get: if signedIn();
+      allow list, delete: if isAdmin();
+      allow create: if isAdmin()
+                    && request.resource.data.keys().hasOnly(['label', 'title', 'd', 'status', 'createdAt', 'createdBy', 'expiresAt'])
+                    && str(request.resource.data.label, 1, 80) && str(request.resource.data.title, 1, 100)
+                    && request.resource.data.d is map && request.resource.data.status == 'open'
+                    && request.resource.data.createdBy == me();
+      allow update: if (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'd', 'title', 'label']))
+                    || (signedIn() && notBanned() && resource.data.status == 'open'
+                        && request.time < resource.data.expiresAt
+                        && request.resource.data.status == 'used' && request.resource.data.usedBy == me()
+                        && request.resource.data.jobId is string
+                        && exists(/databases/$(database)/documents/jobs/$(request.resource.data.jobId))
+                        && get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.ownerUid == me()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'usedBy', 'usedAt', 'jobId']));
+    }
+
     match /admins/{uid} {
       allow read: if signedIn() && me() == uid;
       allow write: if false;

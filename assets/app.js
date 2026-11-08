@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1793958073";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1793958073";
-import { fitScore, rankApplicants } from "./match.js?v=1793958073";
-import { scamFlags, SERIOUS } from "./safety.js?v=1793958073";
-import { initPixel, track } from "./pixel.js?v=1793958073";
-import { IDENTITY, employersHtml } from "./pages.js?v=1793958073";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794136778";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794136778";
+import { fitScore, rankApplicants } from "./match.js?v=1794136778";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794136778";
+import { initPixel, track } from "./pixel.js?v=1794136778";
+import { IDENTITY, employersHtml } from "./pages.js?v=1794136778";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -287,8 +287,8 @@ function payFloor(d) {
 
 /* ---------------- Drafts: keep unsaved form input across refreshes ---------------- */
 const draftKey = (k) => { const u = getAuthState().user?.uid; return u ? `jsph-draft:${k}:${u}` : null; };
-function saveDraft(k, form) {
-  const key = draftKey(k); if (!key || !form) return;
+// Every field of a form as name → value (checkbox groups as lists). Also what an admin's prepared post is stored as.
+function formValues(form) {
   const d = {};
   form.querySelectorAll("input[name], textarea[name], select[name]").forEach((el) => {
     if (el.type === "file" || el.type === "password") return;
@@ -296,6 +296,11 @@ function saveDraft(k, form) {
     else if (el.type === "radio") { if (el.checked) d[el.name] = el.value; }
     else d[el.name] = el.value;
   });
+  return d;
+}
+function saveDraft(k, form) {
+  const key = draftKey(k); if (!key || !form) return;
+  const d = formValues(form);
   try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d })); } catch {}
 }
 function loadDraft(k) {
@@ -311,6 +316,11 @@ function applyDraft(form, d) {
 }
 function clearDraft(k) { try { const key = draftKey(k); if (key) localStorage.removeItem(key); } catch {} }
 function autosave(k, form) { let t; const go = () => { clearTimeout(t); t = setTimeout(() => saveDraft(k, form), 300); }; form.addEventListener("input", go); form.addEventListener("change", go); form.addEventListener("click", (e) => { if (e.target.closest("button[type=button]")) go(); }); }
+// "Post for an employer": the invite link being used in this tab (cleared once the post is submitted).
+const INVITE_KEY = "jsph-invite";
+const inviteToken = () => { try { return sessionStorage.getItem(INVITE_KEY) || ""; } catch { return ""; } };
+const setInviteToken = (t) => { try { t ? sessionStorage.setItem(INVITE_KEY, t) : sessionStorage.removeItem(INVITE_KEY); } catch {} };
+const INVITE_SKIP = ["agreeWage", "agreeFee", "agreeAge", "agreeTerms", "cMethod", "cValue", "inviteFor"];
 const draftNote = () => `<p class="draft-note">${ICON.check}<span>We restored what you typed before. </span><button type="button" class="linkbtn" data-draft-clear>Start over</button></p>`;
 
 /* ---------------- Helpers ---------------- */
@@ -2199,8 +2209,10 @@ function bindConfirmEmail(onDone) {
 }
 
 let phoneSkip = false; // texts couldn't be sent this visit, so posting isn't blocked
-async function viewPost(editId = null) {
-  document.title = `${editId ? "Edit post" : "Post a job"} | Job Search PH`;
+async function viewPost(editId = null, { assist = false } = {}) {
+  assist = assist && !editId && getAuthState().isAdmin;
+  const DK = assist ? "assist" : "post"; // admins preparing a post keep a separate draft from their own posts
+  document.title = `${assist ? "Post for an employer" : editId ? "Edit post" : "Post a job"} | Job Search PH`;
   const { user, profile } = getAuthState();
   if (!user) {
     app.innerHTML = `<div class="empty"><h1>Post a job for free</h1><p class="muted">Create a free employer account to post jobs and review applicants in one place.</p><p><a class="btn btn-primary" href="#/signin" data-action="gosignin" data-intent="employer" data-purpose="Sign in to post a job">Sign in to post a job</a></p></div>`;
@@ -2242,9 +2254,14 @@ async function viewPost(editId = null) {
   app.innerHTML = `
     ${editJob ? `<p><a href="#/my" class="back">← My posts</a></p>
     <div class="page-head"><div><p class="kicker">Edit post</p><h1>${esc(editJob.title)}</h1><p class="muted">${editJob.status === "approved" ? "Saving sends your post back for a quick review. It's hidden from jobseekers until we approve the changes, usually within a day. It keeps its original expiry date, and your applicants and chats stay." : "Saving sends your post for review again."}</p></div></div>`
+    : assist ? `<p><a href="#/admin/invites" class="back">← Post for an employer</a></p>
+    <div class="page-head"><div><p class="kicker">Admin</p><h1>Post for an employer</h1><p class="muted">Fill in the job for them. You get a link to send them. They sign in, check it, add their contact, confirm the pledges and post it from their own account.</p></div></div>`
     : `<div class="page-head"><div><p class="kicker">New job post</p><h1>Post a job</h1><p class="muted">Free to post. Reviewed within a day, then live for 30 days.</p><p class="usage" id="post-usage"></p></div></div>`}
     <div class="post-layout">
       <form id="post-form" class="form post-form" novalidate>
+        ${assist ? `<section class="pcard assist-card">
+          <label class="fld">Who is this for? *<input name="inviteFor" required maxlength="80" placeholder="e.g. DB Uy, clinic on Lacson St"><span class="hint">Only admins see this, so you can find the link later.</span></label>
+        </section>` : ""}
         <section class="pcard">
           <header><span class="num">1</span><div><h2>Who's hiring?</h2><p>This sets the right pay rules and job options.</p></div></header>
           <div class="seg" role="radiogroup">
@@ -2330,13 +2347,13 @@ async function viewPost(editId = null) {
           <button type="button" class="link-btn" id="desc-tpl">Start from an example</button>
         </section>
 
-        <section class="pcard">
+        <section class="pcard" id="contact-sec" ${assist ? "hidden" : ""}>
           <header><span class="num">8</span><div><h2>Your contact for the person you hire</h2><p>Applicants talk to you through Messages here. These are only shown to the person who accepts your job offer. We filled them in from your profile; change or remove any.</p></div></header>
           <div id="contact-rows" class="contact-rows"></div>
           <button type="button" class="btn btn-ghost btn-sm" id="add-contact">+ Add another contact</button>
         </section>
 
-        <section class="pcard agree-box">
+        <section class="pcard agree-box" ${assist ? "hidden" : ""}>
           <p class="label">Before you post, confirm that you will:</p>
           <label class="check"><input type="checkbox" name="agreeWage" required><span>Pay at least the legal minimum wage</span></label>
           <label class="check"><input type="checkbox" name="agreeFee" required><span>Never charge applicants any fee, deposit or deduction</span></label>
@@ -2344,7 +2361,7 @@ async function viewPost(editId = null) {
           <label class="check"><input type="checkbox" name="agreeTerms" required><span>Follow Philippine labor law, including the Kasambahay Law, and the <a href="#/terms" target="_blank">Terms</a></span></label>
         </section>
         <p id="form-error" class="error" hidden></p>
-        <button class="btn btn-primary btn-lg" type="submit">${editJob ? "Save changes" : "Submit for review"}</button>
+        <button class="btn btn-primary btn-lg" type="submit">${assist ? "Create the link" : editJob ? "Save changes" : "Submit for review"}</button>
       </form>
       <aside class="post-side">
         <p class="label">Preview</p>
@@ -2356,6 +2373,7 @@ async function viewPost(editId = null) {
 
   if (!editJob && !getAuthState().isAdmin) store.usage().then((u) => { const el = $("#post-usage"); if (el) el.textContent = `${u.postsM || 0} of ${LIMITS.posts} posts used this month`; }).catch(() => {});
   const f = $("#post-form");
+  if (assist) { f.querySelectorAll(".agree-box input").forEach((i) => (i.required = false)); f.employerName.value = ""; }
   const val = (n) => f.querySelector(`[name=${n}]:checked`)?.value ?? "";
   const workplace = () => val("workplace");
   let touchedBenefits = false;
@@ -2522,13 +2540,16 @@ async function viewPost(editId = null) {
     if (hm) { f.hLen.value = hm[1]; f.hStart.value = (Number(hm[2]) % 12) + (hm[3].toUpperCase() === "PM" ? 12 : 0); }
     autoTitle = "";
   }
-  const draft = editJob ? null : loadDraft("post");
+  const draft = editJob ? null : loadDraft(DK);
+  const invited = !assist && !editJob && inviteToken();
   if (draft) {
     applyDraft(f, draft); touchedBenefits = true; renderOptions(); applyDraft(f, draft);
-    f.insertAdjacentHTML("afterbegin", draftNote());
-    f.querySelector("[data-draft-clear]").addEventListener("click", () => { clearDraft("post"); viewPost(); });
+    (invited ? $(".post-layout") : f).insertAdjacentHTML(invited ? "beforebegin" : "afterbegin", invited
+      ? `<div class="invite-note">${ICON.check}<div><strong>Job Search PH prepared this post for you.</strong><span>Check everything, change anything you like, add how the person you hire can reach you, tick the four boxes at the end, then tap Submit for review.</span></div></div>`
+      : draftNote());
+    f.querySelector("[data-draft-clear]")?.addEventListener("click", () => { clearDraft(DK); viewPost(null, { assist }); });
   }
-  else if (!editJob && profile.employerKind) {
+  else if (!editJob && !assist && profile.employerKind) {
     const wpIn = f.querySelector(`[name=workplace][value="${profile.employerKind}"]`);
     if (wpIn) { wpIn.checked = true; wpIn.dispatchEvent(new Event("change", { bubbles: true })); renderOptions(); }
     const need = (profile.needs || [])[0];
@@ -2539,7 +2560,7 @@ async function viewPost(editId = null) {
     }
     if (catIn) { catIn.checked = true; catIn.dispatchEvent(new Event("change", { bubbles: true })); }
   }
-  if (!editJob) autosave("post", f);
+  if (!editJob) autosave(DK, f);
   refresh();
 
   f.addEventListener("submit", async (e) => {
@@ -2571,6 +2592,18 @@ async function viewPost(editId = null) {
     if (/_{3,}/.test(data.description)) return fail("Fill in the blanks (___) in the job description, or delete the lines you don't need.", f.description);
     { const floor = payFloor({ ...data, workplace: workplace() }); if (floor?.blocked) return fail(floor.blockMsg, f.salaryMin); }
     if (data.workplace !== "business" && !(data.daysOff >= 2)) return fail("The minimum is 2 days off per month.", f.daysOff);
+    if (assist) {
+      const d = formValues(f); INVITE_SKIP.forEach((k) => delete d[k]);
+      const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Creating…";
+      try {
+        const token = await store.createInvite({ label: f.inviteFor.value.trim().slice(0, 80), title: data.title.slice(0, 100), d });
+        clearDraft(DK);
+        return showInviteLink(token, f.inviteFor.value.trim(), data.title);
+      } catch (ex) {
+        console.error(ex); btn.disabled = false; btn.textContent = "Create the link";
+        return fail(ex.code === "permission-denied" ? "The database rejected this. Publish the latest database rules in Firebase, then try again." : `Could not create the link (${ex.code || ex.message}).`);
+      }
+    }
     const rows = [...f.querySelectorAll(".crow")].map((r) => ({ el: r.querySelector("[name=cValue]"), contactMethod: r.querySelector("[name=cMethod]").value, contactValue: r.querySelector("[name=cValue]").value.trim() })).filter((c) => c.contactValue);
     if (!rows.length) return fail("Add at least one way for the person you hire to reach you.", $("#add-contact"));
     for (const r of rows) {
@@ -2596,9 +2629,10 @@ async function viewPost(editId = null) {
         app.innerHTML = `<div class="empty"><h1>Changes saved</h1><p class="muted">Your post is back in review. We'll check the changes soon${editJob.status === "approved" ? " and it will be live again with its original expiry date" : ""}. Your applicants and chats are unchanged.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a></p></div>`;
         return;
       }
-      await store.createJob(data, contact);
+      const made = await store.createJob(data, contact);
       track("Lead", { content_name: "job_post", content_category: data.category });
       clearDraft("post");
+      if (invited) { await store.useInvite(invited, made.id).catch((e) => console.warn("invite", e)); setInviteToken(""); }
       jobsCache = null;
       app.innerHTML = `<div class="empty next-steps"><h1>Thanks! Your post is in review.</h1>
         <ol class="next-list">
@@ -3182,6 +3216,47 @@ async function viewChat(appId) {
   if (!CAN_SMS && !adminView) input.focus();
 }
 
+/* ---------------- Post for an employer (invite links) ---------------- */
+const inviteUrl = (token) => `${location.origin}/#/invite/${token}`;
+function showInviteLink(token, who, title) {
+  const url = inviteUrl(token);
+  app.innerHTML = `<div class="empty next-steps invite-done"><h1>Link ready</h1>
+    <p class="muted">Send this to <strong>${esc(who)}</strong> for <strong>${esc(title)}</strong>. It works once and expires in 30 days.</p>
+    <div class="invite-link"><input readonly value="${esc(url)}" aria-label="Invite link"><button type="button" class="btn btn-primary" id="inv-copy">Copy link</button></div>
+    <ol class="next-list">
+      <li><strong>They open the link</strong> and sign in. "Continue with Google" is quickest.</li>
+      <li><strong>They check the post,</strong> add their contact and confirm the pledges.</li>
+      <li><strong>It comes to Pending posts</strong> like any other post, under their account.</li>
+    </ol>
+    <p><a class="btn btn-ghost" href="#/admin/invites">See all links</a> <a class="btn btn-ghost" href="#/post/assist" id="inv-again">Prepare another</a></p></div>`;
+  $("#inv-copy").addEventListener("click", () => copyText(url));
+  $("#inv-again").addEventListener("click", (e) => { e.preventDefault(); viewPost(null, { assist: true }); });
+}
+async function copyText(t) { try { await navigator.clipboard.writeText(t); toast("Link copied"); } catch { const i = $(".invite-link input"); i?.select(); toast("Press Copy on your keyboard"); } }
+
+async function viewInvite(token) {
+  document.title = "Your job post | Job Search PH";
+  const { user, profile } = getAuthState();
+  if (!user) {
+    app.innerHTML = `<div class="empty"><h1>Your job post is ready</h1><p class="muted">Job Search PH prepared a job post for you. Sign in to check it and post it. It's free.</p>
+      <p><a class="btn btn-primary" href="#/signin" data-action="gosignin" data-intent="employer" data-purpose="Sign in to see your job post">Sign in to see it</a></p>
+      <p class="small muted">Tip: "Continue with Google" is the quickest.</p></div>`;
+    return;
+  }
+  app.innerHTML = `<div class="empty"><p class="muted">Opening your job post…</p></div>`;
+  const inv = await store.getInvite(token);
+  const stop = (h, p) => { app.innerHTML = `<div class="empty"><h1>${h}</h1><p class="muted">${p}</p><p><a class="btn btn-primary" href="#/support">Contact support</a></p></div>`; };
+  if (!inv || inv.status === "cancelled") return stop("This link doesn't work", "It may have been cancelled or typed wrong. Ask Job Search PH for a new link.");
+  if (inv.status === "used") return inv.usedBy === user.uid
+    ? (app.innerHTML = `<div class="empty"><h1>You already posted this job</h1><p class="muted">Find it in My posts.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a></p></div>`)
+    : stop("This link was already used", "Each link works once. Ask Job Search PH for a new one.");
+  if (inv.expiresAt && inv.expiresAt < Date.now()) return stop("This link has expired", "Links work for 30 days. Ask Job Search PH for a new one.");
+  if (profile?.role !== "employer") { returnTo = `#/invite/${token}`; return (app.innerHTML = `<div class="empty"><h1>This is a job post for an employer</h1><p class="muted">Your profile is set to "I'm looking for work". Switch it to "I'm hiring" to post this job.</p><p><a class="btn btn-primary" href="#/profile">Change profile type</a></p></div>`); }
+  try { localStorage.setItem(draftKey("post"), JSON.stringify({ t: Date.now(), d: inv.d || {} })); } catch {}
+  setInviteToken(token);
+  go("#/post");
+}
+
 /* ---------------- Admin ---------------- */
 let adminTab = "analytics";
 let adminCounts = {};
@@ -3194,6 +3269,7 @@ const ADMIN_SECTIONS = [
   { k: "verify", g: "review", queue: true, label: "ID checks", icon: "id", title: "ID checks", desc: "Check that the ID looks real, the name matches their profile, and the face matches the selfie. Photos are deleted as soon as you decide." },
   { k: "disputes", g: "review", queue: true, label: "Disputes", icon: "alert", title: "Work history disputes", desc: "Someone asked you to review what the other side said about how a job ended. Remove it from the history if it isn't fair or accurate, or keep it." },
   { k: "support", g: "review", queue: true, label: "Support", icon: "help", title: "Support", desc: "Messages sent through Contact support." },
+  { k: "invites", g: "manage", label: "Post for an employer", icon: "inbox", title: "Post for an employer", desc: "Fill in a job for an employer, then send them the link. They sign in, check it and post it from their own account." },
   { k: "users", g: "manage", label: "Users", icon: "users", title: "Users", desc: "Everyone with a profile. Open someone to see their details, verify or ban them." },
   { k: "approved", g: "manage", label: "Live posts", icon: "check", title: "Live posts", desc: "Jobs showing on the site now." },
   { k: "rejected", g: "manage", label: "Rejected", icon: "x", title: "Rejected posts", desc: "Posts you didn't approve. You can re-publish them." },
@@ -3894,7 +3970,18 @@ async function viewAdmin() {
   const body = $("#admin-body");
   if (adminTab === "analytics") return renderAnalytics(body);
   if (adminTab === "users") return renderUsers(body);
-  if (adminTab === "support") {
+  if (adminTab === "invites") {
+    const list = await store.listInvites().catch((e) => { console.error(e); return null; });
+    const tag = (i) => i.status === "used" ? `<span class="adm-tag green">Posted</span>` : i.status === "cancelled" ? `<span class="adm-tag">Cancelled</span>` : i.expiresAt && i.expiresAt < Date.now() ? `<span class="adm-tag">Expired</span>` : `<span class="adm-tag amber">Waiting for them</span>`;
+    body.innerHTML = `<p><a class="btn btn-primary" href="#/post/assist">+ New post for an employer</a></p>` + (list == null ? `<p class="error">Couldn't load the links. Publish the latest database rules, then refresh.</p>`
+      : list.length ? `<div class="adm-list">${list.map((i) => `<article class="adm-card"><div class="adm-card-main">
+          <div class="adm-tags">${tag(i)}</div>
+          <h3 class="adm-title">${esc(i.title)} · for ${esc(i.label)}</h3>
+          <p class="adm-meta">Made ${i.createdAt ? new Date(i.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric" }) : "just now"}${i.status === "used" && i.jobId ? ` · <a href="/jobs/${esc(i.jobId)}/">Their post</a> · <a href="#/admin/user/${encodeURIComponent(i.usedBy)}">Their account</a>` : ""}</p>
+          ${i.status === "open" ? `<div class="invite-link"><input readonly value="${esc(inviteUrl(i.id))}" aria-label="Invite link"></div>` : ""}
+        </div>${i.status === "open" ? `<div class="adm-card-actions"><button class="btn btn-primary btn-sm" data-act="invitecopy" data-id="${esc(i.id)}">Copy link</button><button class="btn btn-ghost btn-sm" data-act="invitecancel" data-id="${esc(i.id)}">Cancel link</button></div>` : ""}</article>`).join("")}</div>`
+      : `<div class="adm-empty">${ADMIN_ICONS.inbox}<p><strong>No links yet.</strong> Prepare a post for an employer who asked you to post for them.</p></div>`);
+  } else if (adminTab === "support") {
     const items = await store.listSupport();
     const open = items.filter((m) => m.status !== "done"), done = items.filter((m) => m.status === "done");
     const list = supportView === "done" ? done : supportView === "all" ? items : open;
@@ -4044,8 +4131,10 @@ async function viewAdmin() {
   body.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-act]"); if (!b) return;
     const { act, id } = b.dataset;
-    if ((act === "delete" || act === "closejob") && !confirmInline(b)) return;
+    if ((act === "delete" || act === "closejob" || act === "invitecancel") && !confirmInline(b)) return;
     try {
+      if (act === "invitecopy") return copyText(inviteUrl(id));
+      if (act === "invitecancel") { await store.cancelInvite(id); toast("Link cancelled"); return viewAdmin(); }
       const aj = adminJobs[id];
       if (act === "verify") {
         if (!aj) return;
@@ -4315,7 +4404,8 @@ async function route() {
   if (page === "delete-account") return viewDeleteAccount();
   if (page === "profile") return viewProfile(arg === "emails" ? "emails" : "");
   if (page === "verify") return viewVerify();
-  if (page === "post") return viewPost(arg === "edit" && arg2 ? decodeURIComponent(arg2) : null);
+  if (page === "post") return viewPost(arg === "edit" && arg2 ? decodeURIComponent(arg2) : null, { assist: arg === "assist" });
+  if (page === "invite" && arg) return viewInvite(decodeURIComponent(arg).replace(/[^a-z0-9]/g, "").slice(0, 40));
   if (page === "my") return viewMy();
   if (page === "applicants" && arg) return viewApplicants(decodeURIComponent(arg));
   if (page === "applications") return viewApplications();
@@ -4323,7 +4413,7 @@ async function route() {
   if (page === "support") return viewSupport();
   if (page === "chat" && arg) return viewChat(decodeURIComponent(arg));
   if (page === "admin" && arg === "user" && arg2) return viewAdminUser(decodeURIComponent(arg2));
-  if (page === "admin") { if (["analytics", "users", "pending", "approved", "reports", "flags", "verify", "disputes", "support", "rejected", "closed"].includes(arg)) adminTab = arg; return viewAdmin(); }
+  if (page === "admin") { if (["analytics", "invites", "users", "pending", "approved", "reports", "flags", "verify", "disputes", "support", "rejected", "closed"].includes(arg)) adminTab = arg; return viewAdmin(); }
   if (["safety", "terms", "privacy"].includes(page)) return viewStatic(page);
   go("/");
 }

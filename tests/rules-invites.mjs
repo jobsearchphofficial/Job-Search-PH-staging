@@ -1,0 +1,35 @@
+// "Post for an employer" links: admins make them, the employer who posts the job marks the link used.
+import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
+import { readFileSync } from "node:fs";
+import { doc, setDoc, updateDoc, getDoc, getDocs, collection, deleteDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+const env = await initializeTestEnvironment({ projectId: "demo-jsph", firestore: { rules: readFileSync("firestore.rules", "utf8"), host: "127.0.0.1", port: 8085 } });
+await env.clearFirestore();
+const adm = env.authenticatedContext("adm").firestore(), emp = env.authenticatedContext("emp").firestore(), other = env.authenticatedContext("x").firestore(), anon = env.unauthenticatedContext().firestore();
+await env.withSecurityRulesDisabled(async (c) => { const db = c.firestore(); await setDoc(doc(db, "admins/adm"), { name: "Mark" }); await setDoc(doc(db, "jobs/j1"), { ownerUid: "emp", title: "Clinic aide" }); await setDoc(doc(db, "jobs/j2"), { ownerUid: "x", title: "Other" }); });
+let bad = 0; const t = async (n, p) => { try { await p; console.log("PASS", n); } catch (e) { bad++; console.log("FAIL", n, e.message?.slice(0, 120)); } };
+const I = (db, id = "tok1") => doc(db, "invites", id);
+const inv = (by = "adm", extra = {}) => ({ label: "DB Uy", title: "Clinic aide", d: { title: "Clinic aide", workplace: "business" }, status: "open", createdBy: by, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 30 * 864e5), ...extra });
+const use = (jobId = "j1", by = "emp") => ({ status: "used", usedBy: by, usedAt: serverTimestamp(), jobId });
+
+await t("employer can't make a link", assertFails(setDoc(I(emp, "tokX"), inv("emp"))));
+await t("admin makes a link", assertSucceeds(setDoc(I(adm), inv())));
+await t("admin can't make one already used", assertFails(setDoc(I(adm, "tok2"), inv("adm", { status: "used" }))));
+await t("admin can't add other fields", assertFails(setDoc(I(adm, "tok3"), inv("adm", { usedBy: "emp" }))));
+await t("visitor can't open it", assertFails(getDoc(I(anon))));
+await t("signed-in employer opens it", assertSucceeds(getDoc(I(emp))));
+await t("employer can't list all links", assertFails(getDocs(collection(emp, "invites"))));
+await t("admin lists links", assertSucceeds(getDocs(collection(adm, "invites"))));
+await t("employer can't change the prepared post", assertFails(updateDoc(I(emp), { d: { title: "x" } })));
+await t("employer can't mark it used with someone else's job", assertFails(updateDoc(I(emp), use("j2"))));
+await t("employer can't mark it used for someone else", assertFails(updateDoc(I(emp), use("j1", "x"))));
+await t("employer can't mark it used with a job that doesn't exist", assertFails(updateDoc(I(emp), use("nope"))));
+await t("employer marks it used with their new job", assertSucceeds(updateDoc(I(emp), use("j1"))));
+await t("a used link can't be used again", assertFails(updateDoc(I(other), use("j2", "x"))));
+await t("employer can't delete it", assertFails(deleteDoc(I(emp))));
+await setDoc(I(adm, "tok4"), inv());
+await t("admin cancels a link", assertSucceeds(updateDoc(I(adm, "tok4"), { status: "cancelled" })));
+await t("a cancelled link can't be used", assertFails(updateDoc(I(emp, "tok4"), use("j1"))));
+await env.withSecurityRulesDisabled((c) => setDoc(I(c.firestore(), "tok5"), { ...inv(), expiresAt: Timestamp.fromMillis(Date.now() - 1000) }));
+await t("an expired link can't be used", assertFails(updateDoc(I(emp, "tok5"), use("j1"))));
+await t("admin deletes a link", assertSucceeds(deleteDoc(I(adm, "tok5"))));
+console.log(bad ? `${bad} FAILED` : "all passed"); await env.cleanup(); process.exit(bad ? 1 : 0);
