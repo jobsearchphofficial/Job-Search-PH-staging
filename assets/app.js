@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794147735";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794147735";
-import { fitScore, rankApplicants } from "./match.js?v=1794147735";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794147735";
-import { initPixel, track } from "./pixel.js?v=1794147735";
-import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794147735";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794148699";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794148699";
+import { fitScore, rankApplicants } from "./match.js?v=1794148699";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794148699";
+import { initPixel, track } from "./pixel.js?v=1794148699";
+import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794148699";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -901,6 +901,7 @@ function renderGear() {
         <div><strong>${esc(name)}</strong><span>${esc(user.email || "")}${profile ? ` · ${profile.role === "employer" ? "Employer" : "Jobseeker"}` : ""}</span></div></div>
       <div class="set-group">
         <a class="set-item" href="#/profile">${GI.user}${profile ? "My profile" : "Set up profile"}</a>
+        ${profile?.role === "employer" ? `<a class="set-item" href="#/plan">${GI.doc}My plan &amp; payments</a>` : ""}
         ${isAdmin ? `<a class="set-item" href="#/admin">${GI.admin}Admin${pendingForAdmin ? `<span class="dot">${pendingForAdmin}</span>` : ""}</a>` : ""}
       </div>
       <div class="set-group">
@@ -2268,9 +2269,9 @@ async function viewPost(editId = null, { assist = false, similar = null } = {}) 
     ? `<section class="pcard plan-card"><p class="plan-on">${ICON.check}<span><strong>${esc(PLANS[myPlan.sub.plan]?.name || "Pro")} is on</strong> until ${new Date(myPlan.sub.until).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}. This post is Pro: unlimited applicants and shown at the top.</span></p></section>`
     : `<section class="pcard plan-card"><header><span class="num">9</span><div><h2>Choose your plan</h2><p>${myPlan.freeUsed ? "You've used your free post." : "Your first post is free."} <a href="/pricing/" target="_blank">Compare plans</a></p></div></header>
         <div class="plan-pick" role="radiogroup">
-          ${myPlan.freeUsed ? "" : `<label><input type="radio" name="planPick" value="free" checked><span><strong>Free</strong><em>₱0</em><small>Up to ${PLANS.free.maxApplicants} applicants, then it stops taking applications. Up to 3 openings.</small></span></label>`}
-          <label><input type="radio" name="planPick" value="post" ${myPlan.freeUsed ? "checked" : ""}><span><strong>Pro post</strong><em>₱${PLANS.post.price}</em><small>Unlimited applicants, shown at the top for 30 days, up to 10 openings.</small></span></label>
-          <label><input type="radio" name="planPick" value="monthly"><span><strong>Pro monthly</strong><em>₱${PLANS.monthly.price}<i>/month</i></em><small>Everything in Pro for up to ${PLANS.monthly.postsPerMonth} posts a month. Best if you hire often.</small></span></label>
+          ${myPlan.freeUsed ? "" : `<label><input type="radio" name="planPick" value="free" checked><span><strong>Free</strong><em>₱0</em><small>Stops taking applications at ${PLANS.free.maxApplicants} applicants. Up to 3 openings.</small></span></label>`}
+          <label><input type="radio" name="planPick" value="post" ${myPlan.freeUsed ? "checked" : ""}><span><b class="pp-flag">Recommended</b><strong>Pro post</strong><em>₱${PLANS.post.price}</em><small><strong>Unlimited applicants</strong>, shown at the top for 30 days, up to 10 openings.</small></span></label>
+          <label><input type="radio" name="planPick" value="monthly"><span><strong>Pro monthly</strong><em>₱${PLANS.monthly.price}<i>/month</i></em><small>Every post Pro, up to ${PLANS.monthly.postsPerMonth} a month (from ₱${Math.round(PLANS.monthly.price / PLANS.monthly.postsPerMonth)} each).</small></span></label>
         </div>
         <p class="hint">Pay with GCash, Maya or any bank app using InstaPay after you submit. Hiring a lot? <a href="#/support" data-enterprise>Ask about Enterprise</a>.</p></section>`;
   const cityList = CITIES.filter((c) => c !== "Other");
@@ -2748,6 +2749,41 @@ async function viewPay(kind, jobId) {
     }
   });
 }
+/* ---------------- My plan & payments (employers) ---------------- */
+async function viewPlan() {
+  document.title = "My plan | Job Search PH";
+  const { user, profile } = getAuthState();
+  if (!user) return goSignIn("Sign in to see your plan");
+  if (!profile || profile.role !== "employer") { location.hash = "#/profile"; return; }
+  app.innerHTML = `<div class="page-head"><div><p class="kicker">Employer</p><h1>My plan &amp; payments</h1></div></div><div id="plan-body">${SK.rows(3)}</div>`;
+  const [plan, pays, jobs, usage, cap] = await Promise.all([trackPurchases().then(() => store.myPlan()).catch(() => ({})), store.myPayments().catch(() => []), store.myJobs().catch(() => []), store.usage().catch(() => ({})), store.postCap().catch(() => LIMITS.posts)]);
+  if (!$("#plan-body")) return;
+  const fmtD = (t) => new Date(t).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" });
+  const sub = plan.sub, P = sub ? PLANS[sub.plan] : null;
+  const daysLeft = sub ? Math.max(0, Math.ceil((sub.until - Date.now()) / 864e5)) : 0;
+  const pro = jobs.filter((j) => j.plan === "pro"), free = jobs.find((j) => j.plan === "free"), unpaid = jobs.filter((j) => j.plan === "unpaid");
+  const pendingPay = pays.find((x) => x.status === "pending");
+  const current = sub
+    ? `<div class="plan-now pro"><div><span class="plan-chip pro">${esc(P?.name || "Pro")}</span><h2>${esc(P?.name || "Pro")} is on</h2>
+        <p>Until <strong>${fmtD(sub.until)}</strong> · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left. Every new post is Pro: unlimited applicants, shown at the top, up to 10 openings.</p>
+        <p class="muted small">${usage.postsM || 0} of ${cap} posts used this month.</p></div>
+        <div class="plan-now-act">${sub.plan === "monthly" ? `<a class="btn ${daysLeft <= 7 ? "btn-primary" : "btn-ghost"}" href="#/pay/monthly">Add 30 days · ₱${PLANS.monthly.price}</a>` : `<a class="btn btn-ghost" href="#/support" data-enterprise>Contact us</a>`}</div></div>`
+    : `<div class="plan-now"><div><span class="plan-chip">${plan.freeUsed ? "Pay per post" : "Free"}</span><h2>${plan.freeUsed ? "You're on pay per post" : "Your first post is free"}</h2>
+        <p>${plan.freeUsed ? `Each new post is ₱${PLANS.post.price} for Pro, or get <strong>Pro monthly</strong> for ₱${PLANS.monthly.price} and make up to ${PLANS.monthly.postsPerMonth} posts a month Pro.` : `Post your first job free (up to ${PLANS.free.maxApplicants} applicants). Go Pro for unlimited applicants and a spot at the top.`}</p>
+        ${plan.lastSub && plan.lastSub.until <= Date.now() ? `<p class="muted small">Your ${esc(PLANS[plan.lastSub.plan]?.name || "plan")} ended on ${fmtD(plan.lastSub.until)}.</p>` : ""}</div>
+        <div class="plan-now-act"><a class="btn btn-primary" href="#/pay/monthly">Get Pro monthly · ₱${PLANS.monthly.price}</a><a class="btn btn-ghost" href="/pricing/">Compare plans</a></div></div>`;
+  const postRow = (j) => `<li><a href="/jobs/${encodeURIComponent(j.id)}/">${esc(j.title)}</a> ${planBadge(j)}<span class="muted small">${j.plan === "pro" ? (j.status === "approved" && j.expiresAt ? `top of the list until ${fmtD(j.expiresAt)}` : "goes to the top once approved") : j.plan === "free" ? `${j.appCount || 0} of ${PLANS.free.maxApplicants} applicants` : "waiting for payment"}</span>
+    ${j.plan === "free" || (j.plan === "unpaid" && !pays.some((x) => x.status === "pending" && x.jobId === j.id)) ? `<a class="btn btn-ghost btn-sm" href="#/pay/post/${encodeURIComponent(j.id)}">${j.plan === "free" ? "Make it Pro" : "Pay"} · ₱${PLANS.post.price}</a>` : ""}</li>`;
+  const status = (x) => (x.status === "approved" ? `<span class="badge badge-approved">Paid</span>` : x.status === "pending" ? `<span class="badge badge-app-shortlisted">Checking</span>` : `<span class="badge badge-rejected">Not found</span>`);
+  $("#plan-body").innerHTML = `
+    ${current}
+    ${pendingPay ? `<div class="plan-banner muted-banner"><span>We're checking your payment of <strong>₱${pendingPay.amount}</strong> (ref. ${esc(pendingPay.ref)}), usually within a few hours.</span></div>` : ""}
+    <section class="pcard"><h2 class="h3">Your posts</h2>${[...pro, ...(free ? [free] : []), ...unpaid].length ? `<ul class="plan-posts">${[...unpaid, ...pro, ...(free ? [free] : [])].map(postRow).join("")}</ul>` : `<p class="muted">No posts yet. <a href="#/post">Post a job</a></p>`}</section>
+    <section class="pcard"><h2 class="h3">Payments</h2>${pays.length ? `<table class="pay-table"><thead><tr><th>Date</th><th>For</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>${pays.map((x) => `<tr><td>${fmtD(x.createdAt)}</td><td>${x.kind === "post" ? `Pro post${x.jobTitle ? `: ${esc(x.jobTitle)}` : ""}` : "Pro monthly (30 days)"}</td><td>₱${fmtN(x.amount)}</td><td>${esc(x.ref)}</td><td>${status(x)}${x.status === "rejected" && x.reason ? `<div class="muted small">${esc(x.reason)}</div>` : ""}</td></tr>`).join("")}</tbody></table>
+      <p class="muted small">Questions about a payment? <a href="#/support" data-payhelp>Contact support</a>.</p>` : `<p class="muted">No payments yet.</p>`}</section>`;
+  $("[data-enterprise]")?.addEventListener("click", () => { supportPrefill = { topic: "Enterprise plan", message: "Hi! About our Enterprise plan:\n" }; });
+  $("[data-payhelp]")?.addEventListener("click", () => { supportPrefill = { topic: "Payments and plans", message: "About my payment:\n" }; });
+}
 // Tell the ad Pixel about a confirmed payment, once per payment (the admin confirms it later, so we check on My posts).
 async function trackPurchases() {
   const pays = await store.myPayments().catch(() => []);
@@ -2782,8 +2818,8 @@ async function viewMy() {
       }
       return "";
     };
-    const subLine = plan.sub ? `<div class="plan-banner">${ICON.check}<span><strong>${esc(PLANS[plan.sub.plan]?.name || "Pro")} is on</strong> until ${new Date(plan.sub.until).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}. Every new post is Pro.</span></div>`
-      : `<div class="plan-banner muted-banner"><span>Hiring often? <strong>Pro monthly</strong> makes every post Pro for ₱${PLANS.monthly.price}/month.</span> <a class="btn btn-ghost btn-sm" href="/pricing/">See plans</a></div>`;
+    const subLine = plan.sub ? `<div class="plan-banner">${ICON.check}<span><strong>${esc(PLANS[plan.sub.plan]?.name || "Pro")} is on</strong> until ${new Date(plan.sub.until).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}. Every new post is Pro.</span> <a class="btn btn-ghost btn-sm" href="#/plan">My plan</a></div>`
+      : `<div class="plan-banner muted-banner"><span>Hiring often? <strong>Pro monthly</strong> makes every post Pro for ₱${PLANS.monthly.price}/month.</span> <a class="btn btn-ghost btn-sm" href="#/plan">My plan</a></div>`;
     list.sort((a, b) => b.createdAt - a.createdAt);
     const by = {}; apps.forEach((a) => { (by[a.jobId] ||= []).push(a); });
     $("#mine").innerHTML = (list.length ? subLine : "") + (list.length ? `<div class="table">${list.map((j) => {
@@ -4676,6 +4712,7 @@ async function route() {
   if (["safety", "employers", "pricing"].includes(page) && isHashRoute()) history.replaceState(null, "", `/${page}/${location.search}`);
   if (page === "employers") return viewEmployers();
   if (page === "pricing") return viewPricing();
+  if (page === "plan") return viewPlan();
   if (page === "pay") return viewPay(arg, arg2 ? decodeURIComponent(arg2) : "");
   if (page === "join") { // tracked links for ads: open sign-up, already set as jobseeker or employer
     if (user) { location.hash = profile ? (arg === "employer" ? "#/post" : "#/") : "#/profile"; return; }
