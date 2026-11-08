@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794136778";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794136778";
-import { fitScore, rankApplicants } from "./match.js?v=1794136778";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794136778";
-import { initPixel, track } from "./pixel.js?v=1794136778";
-import { IDENTITY, employersHtml } from "./pages.js?v=1794136778";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794144647";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794144647";
+import { fitScore, rankApplicants } from "./match.js?v=1794144647";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794144647";
+import { initPixel, track } from "./pixel.js?v=1794144647";
+import { IDENTITY, employersHtml } from "./pages.js?v=1794144647";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -665,7 +665,8 @@ function authError(err) {
   const map = {
     "auth/invalid-email": "That email address doesn't look right.",
     "auth/missing-password": "Enter your password.",
-    "auth/weak-password": "Use a password with at least 6 characters.",
+    "auth/weak-password": "Use a password with at least 8 characters.",
+    "auth/password-does-not-meet-requirements": "Use a password with at least 8 characters.",
     "auth/email-already-in-use": "An account with this email already exists. Sign in instead.",
     "auth/invalid-credential": "Wrong email or password.",
     "auth/wrong-password": "Wrong email or password.",
@@ -1428,9 +1429,9 @@ function viewSignIn() {
           <div class="divider"><span>or use email</span></div>
           <form id="email-form" class="auth-form" novalidate>
             <label for="s-email">Email</label><input id="s-email" name="email" type="email" autocomplete="email" required value="${esc(su.email)}">
-            <label for="s-pw">Password</label><input id="s-pw" name="pw" type="password" autocomplete="${up ? "new-password" : "current-password"}" required minlength="6">
-            ${up ? `<p class="hint">At least 6 characters.</p>
-            <label for="s-pw2">Confirm password</label><input id="s-pw2" name="pw2" type="password" autocomplete="new-password" required minlength="6">
+            <label for="s-pw">Password</label><input id="s-pw" name="pw" type="password" autocomplete="${up ? "new-password" : "current-password"}" required minlength="${up ? 8 : 6}">
+            ${up ? `<p class="hint">At least 8 characters.</p>
+            <label for="s-pw2">Confirm password</label><input id="s-pw2" name="pw2" type="password" autocomplete="new-password" required minlength="8">
             <p class="pw-match" id="pw-match" aria-live="polite"></p>` : `<button type="button" class="linkbtn" id="forgot">Forgot password?</button>`}
             <p id="auth-error" class="error" hidden></p>
             <button class="btn btn-primary btn-block" type="submit">${up ? "Create account" : "Sign in"}</button>
@@ -1482,7 +1483,7 @@ function viewSignIn() {
         if (!su.role) return bad("Choose \u201cI'm looking for work\u201d or \u201cI'm hiring\u201d at the top.");
       }
       if (!email) return bad("Enter your email.", f.email);
-      if (pw.length < 6) return bad("Use a password with at least 6 characters.", f.pw);
+      if (pw.length < (up ? 8 : 6)) return bad(`Use a password with at least ${up ? 8 : 6} characters.`, f.pw);
       if (up && f.pw2.value !== pw) return bad(f.pw2.value ? "The two passwords don't match." : "Type your password again to confirm it.", f.pw2);
       btn.disabled = true;
       try {
@@ -3360,18 +3361,18 @@ async function viewAuthAction() {
     try { email = await store.checkResetCode(code); }
     catch { card(`<h1>This link didn't work</h1><p class="muted">Password links work for 1 hour and only once. Ask for a new one from the sign-in page (tap <strong>Forgot password?</strong>).</p><div class="ce-actions"><a class="btn btn-primary" href="#/signin">Go to sign in</a></div>`); return; }
     card(`<h1>Choose a new password</h1><p class="muted">For <strong>${esc(email)}</strong></p>
-      <form id="rp-form" class="auth-form" novalidate><label for="rp1">New password</label><input id="rp1" type="password" autocomplete="new-password" minlength="6" required>
-      <label for="rp2">Type it again</label><input id="rp2" type="password" autocomplete="new-password" minlength="6" required><p class="hint">At least 6 characters.</p>
+      <form id="rp-form" class="auth-form" novalidate><label for="rp1">New password</label><input id="rp1" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="rp2">Type it again</label><input id="rp2" type="password" autocomplete="new-password" minlength="8" required><p class="hint">At least 8 characters.</p>
       <p class="error" id="ce-msg" hidden></p><button class="btn btn-primary btn-block" type="submit">Save new password</button></form>`);
     $("#rp-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const m = $("#ce-msg"), a = $("#rp1").value, b = $("#rp2").value, btn = e.target.querySelector("button");
       const fail = (t) => { m.textContent = t; m.hidden = false; };
-      if (a.length < 6) return fail("Use at least 6 characters.");
+      if (a.length < 8) return fail("Use at least 8 characters.");
       if (a !== b) return fail("The two passwords don't match.");
       btn.disabled = true;
       try { await store.confirmReset(code, a); await store.signInEmail(email, a).catch(() => {}); toast("Password changed. You're signed in."); location.hash = "#/"; route(); }
-      catch (ex) { btn.disabled = false; fail(ex.code === "auth/weak-password" ? "Choose a stronger password." : "That didn't work. The link may have expired. Ask for a new one."); }
+      catch (ex) { btn.disabled = false; fail(/weak-password|password-does-not-meet/.test(ex.code || "") ? "Choose a stronger password." : "That didn't work. The link may have expired. Ask for a new one."); }
     });
     return;
   }

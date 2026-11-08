@@ -50,7 +50,8 @@ async function fetchJobs() {
   const { apiKey, projectId } = await readConfig();
   const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery?key=${apiKey}`;
   const body = { structuredQuery: { from: [{ collectionId: "jobs" }], where: { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "approved" } } }, limit: 1000 } };
-  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  // The web API key is limited to our websites, so say where this request is for (Google checks the referer).
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", referer: "https://jobsearchph.com/" }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`Firestore query failed: ${res.status} ${await res.text()}`);
   const rows = await res.json();
   return rows.filter((r) => r.document).map((r) => ({
