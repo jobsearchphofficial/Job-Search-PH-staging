@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794147561";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794147561";
-import { fitScore, rankApplicants } from "./match.js?v=1794147561";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794147561";
-import { initPixel, track } from "./pixel.js?v=1794147561";
-import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794147561";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794147735";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794147735";
+import { fitScore, rankApplicants } from "./match.js?v=1794147735";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794147735";
+import { initPixel, track } from "./pixel.js?v=1794147735";
+import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794147735";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -1704,6 +1704,8 @@ function viewProfile(focus) {
           <span>Email me when new jobs match the jobs I picked above</span></label>
         <div id="alerts-scope" ${p.alerts ? "" : "hidden"}><span class="label">Where</span>${choicePills("alertsScope", [["city", "Only in my city / town"], ["all", "Anywhere in Negros Occidental"]], p.alertsScope === "all" ? "all" : "city", { optional: false })}
           <span class="hint">We'll keep you posted when a job opportunity that fits you opens up ;) At most one email a day${user.email ? `, to <strong>${esc(user.email)}</strong>` : ""}, and you can stop them anytime.${getAuthState().mustConfirmEmail ? " Alerts start once you confirm your email (see the top of this page)." : ""}</span></div>
+        <label class="check"><input type="checkbox" name="emailNotify" ${p.emailNotify === false ? "" : "checked"}>
+          <span>Email me when an employer messages me, shortlists me or offers me a job</span></label>
       </fieldset>
       <fieldset>
         <legend>Experience &amp; resume</legend>

@@ -3,7 +3,9 @@
 //      applicant by fit score, then a short list of the others. Applicants who arrive after it's sent go in
 //      the next day's email. A day the robot missed is sent on its next run.
 //   2. Employer: "we got your post", "your post is live", "your changes are live", "your post wasn't approved".
-//   3. Admin: one summary email when there's something to do (posts to review, support messages, reports).
+//   3. Admin: one summary email when there's something to do (posts to review, payments, support messages, reports).
+//   4. Jobseeker: "an employer messaged you" (unread for 15 minutes; at most once every 4 hours per chat,
+//      never with the message itself), "you're shortlisted", "you got a job offer".
 //
 // Nothing is sent twice: every email has a key saved in mailLog/{key}, and meta/mailer.lastRun remembers
 // where the last run stopped. Employers can turn these emails off in My profile (users.emailNotify = false).
@@ -32,6 +34,7 @@ const safetySrc = await readFile(join(ROOT, "assets/safety.js"), "utf8");
 const { scamFlags, SERIOUS } = await import(`data:text/javascript;base64,${Buffer.from(safetySrc).toString("base64")}`);
 
 const first = (n) => String(n || "").trim().split(/\s+/)[0] || "there";
+const seekerNote = `You're getting this because you applied for a job on Job Search PH. <a href="${link("#/profile/emails")}" style="color:#777777;">Turn off these emails</a> in My profile.`;
 const settingsNote = `You're getting this because you posted a job on Job Search PH. <a href="${link("#/profile/emails")}" style="color:#777777;">Turn off these emails</a> in My profile.`;
 const fitColor = (s) => (s >= 80 ? "#15803d" : s >= 60 ? "#3d4fd6" : s >= 40 ? "#b45309" : "#6b7280");
 
@@ -179,6 +182,38 @@ async function postUpdates(since) {
   return pendingForAdmin;
 }
 
+/* ---------- 4. Jobseekers: new message, shortlisted, job offer ---------- */
+const MSG_WAIT = 15 * 60000, MSG_EVERY = 4 * 3600000;
+async function seekerUpdates(since) {
+  const from = new Date(since - MSG_EVERY);
+  const [byStatus, byMsg] = await Promise.all([
+    query("applications", [["updatedAt", "GREATER_THAN", from]]).catch(() => []),
+    query("applications", [["lastMessageAt", "GREATER_THAN", from]]).catch(() => []),
+  ]);
+  const apps = [...new Map([...byStatus, ...byMsg].map((a) => [a.id, a])).values()];
+  for (const a of apps) {
+    if (a.applicantDeleted || a.employerDeleted) continue;
+    const who = esc(a.employerName && a.employerName !== "Deleted user" ? a.employerName : "An employer");
+    const jobLine = card(`<div style="font-size:12px;color:#777777;text-transform:uppercase;letter-spacing:.5px;">The job</div><div style="font-size:16px;font-weight:bold;color:#111111;margin-top:2px;">${esc(a.jobTitle || "")}</div><div>${esc(a.jobCity || "")}</div>`);
+    const todo = [];
+    if (a.status === "shortlisted") todo.push({ key: `seek_${a.id}_shortlisted`, subject: `You're shortlisted for ${a.jobTitle}`, title: "You're shortlisted",
+      body: `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Good news! ${who} shortlisted you. They may message you soon, so check your messages on Job Search PH.</p>${jobLine}${button(link(`#/applications`, "email-seek"), "See my applications")}` });
+    if (a.status === "offered") todo.push({ key: `seek_${a.id}_offered`, subject: `You got a job offer: ${a.jobTitle}`, title: "You got a job offer",
+      body: `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">${who} wants to hire you. Open Job Search PH to <strong>accept or decline</strong> the offer. Talk with them first about the pay, schedule and start date if anything isn't clear.</p>${jobLine}${button(link(`#/applications`, "email-seek"), "See the offer")}` });
+    const unread = a.lastMessageFrom && a.lastMessageFrom === a.employerUid && a.lastMessageAt && (!a.applicantSeenAt || a.applicantSeenAt < a.lastMessageAt);
+    if (unread && now - a.lastMessageAt >= MSG_WAIT) todo.push({ key: `seekmsg_${a.id}_${Math.floor(a.lastMessageAt / MSG_EVERY)}`, subject: `${a.employerName && a.employerName !== "Deleted user" ? a.employerName : "An employer"} messaged you about ${a.jobTitle}`, title: "You have a new message",
+      body: `<p style="margin:0 0 14px 0;font-size:16px;line-height:26px;color:#2b2f3a;">${who} sent you a message about this job. Reply on Job Search PH so they don't move on to someone else.</p>${jobLine}${button(link(`#/chat/${a.id}`, "email-seek"), "Read and reply")}` });
+    for (const t of todo) {
+      if (await seen(t.key)) continue;
+      const u = await getUser(a.applicantUid);
+      if (!u?.email || u.emailNotify === false) { await mark(t.key, "skipped"); continue; }
+      const html = layout({ title: t.title, preheader: t.subject, body: `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(u.fullName))},</p>${t.body}`, footerNote: seekerNote });
+      await deliver(t.key, u.email, { subject: t.subject, html, text: `${t.subject}. ${link("#/applications", "email-seek")}` });
+      if (capped) return;
+    }
+  }
+}
+
 /* ---------- Deleted accounts: remove their closed chats 30 days later ---------- */
 async function purgeDeletedChats() {
   const cutoff = Date.now() - 30 * 86400000;
@@ -305,12 +340,14 @@ async function workHistory(since) {
 }
 
 async function adminSummary(since, pendingJobs, flagged = [], verifyReqs = [], disputes = []) {
-  const [support, reports] = await Promise.all([
+  const [support, reports, payments] = await Promise.all([
     query("support", [["createdAt", "GREATER_THAN", new Date(since)]]).catch(() => []),
     query("reports", [["createdAt", "GREATER_THAN", new Date(since)]]).catch(() => []),
+    query("payments", [["createdAt", "GREATER_THAN", new Date(since)]]).catch(() => []),
   ]);
   const items = [
     ...pendingJobs.filter((j) => (j.editedAt || j.createdAt) > since).map((j) => ({ key: `admin_job_${j.id}_${j.editedAt || j.createdAt}`, kind: j.editedAt ? "Edited post to re-check" : "New post to review", text: `${j.title} · ${j.employerName} · ${j.city}`, href: link("#/admin/pending", "email-admin") })),
+    ...payments.filter((x) => x.status === "pending").map((x) => ({ key: `admin_pay_${x.id}`, kind: "Payment to check", text: `₱${x.amount} · ref ${x.ref}${x.payerName ? ` · from ${x.payerName}` : ""}${x.jobTitle ? ` · ${x.jobTitle}` : ""}`, href: link("#/admin/payments", "email-admin") })),
     ...support.map((s) => ({ key: `admin_support_${s.id}`, kind: `Support: ${s.topic || "message"}`, text: `${s.name || ""}: ${String(s.message || "").slice(0, 140)}`, href: link("#/admin/support", "email-admin") })),
     ...reports.map((r) => ({ key: `admin_report_${r.id}`, kind: `Report: ${r.reason}`, text: `Job ${r.jobId}${r.details ? ` · ${String(r.details).slice(0, 120)}` : ""}`, href: link(`#/job/${r.jobId}`, "email-admin") })),
     ...disputes.map((d) => ({ key: `admin_dispute_${d.id}`, kind: "Work history review", text: `${d.by === "worker" ? d.a.applicant?.fullName || "A worker" : d.a.employerName || "An employer"} asked you to review how the ${d.a.jobTitle || ""} job ended.` })),
@@ -320,7 +357,7 @@ async function adminSummary(since, pendingJobs, flagged = [], verifyReqs = [], d
   const todo = [];
   for (const it of items) if (!(await seen(it.key))) todo.push(it);
   if (!todo.length) return;
-  const NOUN = { "New post to review": ["new post to review", "new posts to review"], "Edited post to re-check": ["edited post to re-check", "edited posts to re-check"], Support: ["support message", "support messages"], Report: ["report", "reports"], "Chat flag": ["flagged chat message", "flagged chat messages"], "ID check to review": ["ID check to review", "ID checks to review"] };
+  const NOUN = { "Payment to check": ["payment to check", "payments to check"], "New post to review": ["new post to review", "new posts to review"], "Edited post to re-check": ["edited post to re-check", "edited posts to re-check"], Support: ["support message", "support messages"], Report: ["report", "reports"], "Chat flag": ["flagged chat message", "flagged chat messages"], "ID check to review": ["ID check to review", "ID checks to review"] };
   const counts = {};
   todo.forEach((t) => { const k = t.kind.split(":")[0]; counts[k] = (counts[k] || 0) + 1; });
   const summary = Object.entries(counts).map(([k, n]) => `${n} ${(NOUN[k] || [k.toLowerCase(), `${k.toLowerCase()}s`])[n === 1 ? 0 : 1]}`).join(", ");
@@ -382,6 +419,7 @@ async function main() {
     await expireVerify().catch((e) => console.error(`ID check cleanup failed: ${e.message}`));
     await purgeDeletedChats().catch((e) => console.error(`Deleted-account cleanup failed: ${e.message}`));
     const verifyReqs = capped ? [] : await verifyUpdates(since);
+    if (!capped) await seekerUpdates(since).catch((e) => console.error(`Jobseeker emails failed: ${e.message}`));
     const disputes = await workHistory(since).catch((e) => { console.error(`Work history failed: ${e.message}`); return []; });
     if (!capped) await adminSummary(since, pending, flagged, verifyReqs, disputes);
     if (!capped) await employerReminders();
