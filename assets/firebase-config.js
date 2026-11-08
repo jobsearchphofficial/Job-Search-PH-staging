@@ -40,5 +40,5 @@ export const RESUME_UPLOADS = false;
 // provider is enabled in this site's Firebase project (Authentication → Sign-in method).
 export const FB_LOGIN = { staging: true, live: false }[IS_STAGING ? "staging" : "live"];
 // Meta Pixel ID (Events Manager → Data sources). Empty = no Pixel and no cookie banner.
-// Only used on the real site; the test site never loads it.
-export const META_PIXEL_ID = IS_STAGING ? "" : "";
+// Same Pixel on both sites (test-site visits are only us). Loads only after a visitor taps "Allow".
+export const META_PIXEL_ID = "1146787224520615";

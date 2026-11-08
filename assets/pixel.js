@@ -3,7 +3,7 @@
 // - Asks first ("Allow / No thanks"); the choice is remembered on this device and can be changed from the footer.
 // - Sends no names, emails or phone numbers (no advanced matching, no automatic events).
 // - Only reports public pages: never chats, messages, profile, admin, ID checks or email links.
-import { META_PIXEL_ID } from "./firebase-config.js?v=1794144647";
+import { META_PIXEL_ID } from "./firebase-config.js?v=1794144884";
 
 const KEY = "jsph-ads-consent";
 const PUBLIC = /^#?\/?($|job\/|jobs|post|join\/|signin|safety|terms|privacy|support)/;
