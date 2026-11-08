@@ -352,12 +352,12 @@ async function employerReminders() {
     if (!posts.length) {
       if (!emp.createdAt || now - emp.createdAt < 7 * 86400000) continue;
       key = `remind_${emp.id}_first`; subject = "Ready to post your first job?"; title = "Ready to post your first job?";
-      body = `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, you made an employer account on Job Search PH but haven't posted a job yet. It's free and takes about 2 minutes. Jobseekers in Negros Occidental can apply and message you right on the site.</p>${button(link("#/post", "email-remind"), "Post a job for free")}`;
+      body = `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, you made an employer account on Job Search PH but haven't posted a job yet. Your first post is free and takes about 2 minutes. Jobseekers in Negros Occidental can apply and message you right on the site.</p>${button(link("#/post", "email-remind"), "Post my free job")}`;
     } else {
       const last = posts.reduce((a, b) => ((b.createdAt || 0) > (a.createdAt || 0) ? b : a));
       if (now - (last.createdAt || 0) < 30 * 86400000) continue;
       key = `remind_${emp.id}_${month}`; subject = "Still hiring? Post a job in 2 minutes"; title = "Still hiring?";
-      body = `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, you don't have any live job posts on Job Search PH right now. If you need help again, posting is free and jobseekers can apply the same day.</p>
+      body = `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(emp.fullName))}, you don't have any live job posts on Job Search PH right now. If you need help again, post a job and jobseekers can apply the same day.</p>
         ${card(`<div style="font-size:12px;color:#777777;text-transform:uppercase;letter-spacing:.5px;">Your last post</div><div style="font-size:15px;font-weight:bold;color:#111111;margin-top:2px;">${esc(last.title)}</div><div>${esc(last.city || "")} · ${new Date(last.createdAt).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}</div>`)}
         ${button(link("#/post", "email-remind"), "Post a job")}`;
     }

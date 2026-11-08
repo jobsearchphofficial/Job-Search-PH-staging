@@ -1,5 +1,6 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1794145240";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1794147561";
+import { PRICES } from "./pages.js?v=1794147561";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -47,7 +48,7 @@ const toMs = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : v ??
 const norm = (snap) => {
   const d = snap.data();
   const out = { id: snap.id, ...d };
-  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "editedAt", "decidedAt", "usedAt", "at"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
+  ["createdAt", "approvedAt", "expiresAt", "updatedAt", "declinedAt", "lastMessageAt", "applicantSeenAt", "employerSeenAt", "endRequestedAt", "endedAt", "acceptedAt", "bannedAt", "doneAt", "infoAt", "editedAt", "decidedAt", "usedAt", "at", "until", "paidAt"].forEach((k) => { if (k in d) out[k] = toMs(d[k]); });
   return out;
 };
 const jobsQ = async (...c) => (await F.getDocs(F.query(F.collection(db, "jobs"), ...c))).docs.map(norm);
@@ -109,16 +110,23 @@ export const LIMITS = { applies: 3, posts: 5, messages: 200, reports: 5, support
 const phDay = () => Math.floor((Date.now() + 8 * 3600000) / 86400000);
 // Philippine calendar month as one number (year * 12 + month 1–12). Job posts are limited per month.
 const phMonth = () => { const d = new Date(Date.now() + 8 * 3600000); return d.getUTCFullYear() * 12 + d.getUTCMonth() + 1; };
+// Paid plans. Prices must match the payments rule in firestore.rules.
+export const PLANS = {
+  free: { name: "Free", price: 0, maxApplicants: 5, maxOpenings: 3 },
+  post: { name: "Pro post", price: PRICES.post, days: 30, maxOpenings: 10 },
+  monthly: { name: "Pro monthly", price: PRICES.monthly, days: 30, postsPerMonth: 5, maxOpenings: 10 },
+  enterprise: { name: "Enterprise", postsPerMonth: 30, maxOpenings: 10 },
+};
 export class LimitError extends Error { constructor(kind) { super(`limit:${kind}`); this.kind = kind; this.code = "limit-reached"; } }
 
 export const store = {
   async usage() {
-    const base = { day: phDay(), month: phMonth(), applies: 0, posts: 0, messages: 0, reports: 0, support: 0, postsM: 0 };
+    const base = { day: phDay(), month: phMonth(), applies: 0, posts: 0, messages: 0, reports: 0, support: 0, postsM: 0, pays: 0 };
     if (!uid()) return base;
     const snap = await F.getDoc(F.doc(db, "limits", uid())).catch(() => null);
     const d = snap?.exists() ? snap.data() : null;
     if (!d) return base;
-    const daily = d.day === phDay() ? { applies: d.applies || 0, posts: d.posts || 0, messages: d.messages || 0, reports: d.reports || 0, support: d.support || 0 } : {};
+    const daily = d.day === phDay() ? { applies: d.applies || 0, posts: d.posts || 0, messages: d.messages || 0, reports: d.reports || 0, support: d.support || 0, pays: d.pays || 0 } : {};
     return { ...base, ...daily, postsM: d.month === phMonth() ? d.postsM || 0 : 0, msgAt: d.msgAt ?? null };
   },
   // Adds "bump the counter" to a batch. Posts count per month (postsM); everything else per day.
@@ -126,8 +134,9 @@ export const store = {
   async _bump(batch, kind, extra = {}) {
     const u = await this.usage();
     const field = kind === "posts" ? "postsM" : kind;
-    if ((u[field] || 0) >= LIMITS[kind]) throw new LimitError(kind);
-    const next = { day: phDay(), month: phMonth(), applies: u.applies, posts: u.posts, messages: u.messages, reports: u.reports, support: u.support, postsM: u.postsM, [field]: (u[field] || 0) + 1, ...extra };
+    const cap = kind === "posts" ? await this.postCap() : LIMITS[kind];
+    if ((u[field] || 0) >= cap) throw new LimitError(kind);
+    const next = { day: phDay(), month: phMonth(), applies: u.applies, posts: u.posts, messages: u.messages, reports: u.reports, support: u.support, postsM: u.postsM, pays: u.pays, [field]: (u[field] || 0) + 1, ...extra };
     if (u.msgAt && !("msgAt" in extra)) next.msgAt = u.msgAt;
     batch.set(F.doc(db, "limits", uid()), next);
   },
@@ -314,11 +323,13 @@ export const store = {
     try { const s = await F.getDoc(F.doc(db, "jobs", jobId, "private", "contact")); return s.exists() ? s.data() : null; }
     catch { return null; }
   },
-  async createJob(data, contact) {
+  // plan: "free" (first post), "pro" (Monthly or Enterprise is active) or "unpaid" (pay for this post next).
+  async createJob(data, contact, plan = "unpaid") {
     const ref = F.doc(F.collection(db, "jobs"));
     const b = F.writeBatch(db);
-    b.set(ref, { ...data, ownerUid: uid(), status: "pending", featured: false, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), approvedAt: null, expiresAt: null });
+    b.set(ref, { ...data, ownerUid: uid(), status: "pending", featured: false, plan, appCount: 0, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), approvedAt: null, expiresAt: null });
     b.set(F.doc(db, "jobs", ref.id, "private", "contact"), contact);
+    if (plan === "free") b.set(F.doc(db, "freeUsed", uid()), { jobId: ref.id, at: F.serverTimestamp() });
     if (!state.isAdmin) await this._bump(b, "posts");
     await b.commit();
     return { id: ref.id };
@@ -330,9 +341,10 @@ export const store = {
   // so editing can't bump a post to the top or extend it for free.
   async approve(id, job = null) {
     const keep = job && job.approvedAt && job.expiresAt && job.expiresAt > Date.now();
+    const pro = job?.plan === "pro" ? { featured: true } : {};
     await F.updateDoc(F.doc(db, "jobs", id), keep
-      ? { status: "approved", updatedAt: F.serverTimestamp() }
-      : { status: "approved", approvedAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), expiresAt: F.Timestamp.fromMillis(Date.now() + LISTING_DAYS * DAY) });
+      ? { status: "approved", updatedAt: F.serverTimestamp(), ...pro }
+      : { status: "approved", approvedAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), expiresAt: F.Timestamp.fromMillis(Date.now() + LISTING_DAYS * DAY), ...pro });
   },
   // Employer edits their own post. It goes back to review (status pending) until an admin re-approves it.
   async editJob(id, data, contact) {
@@ -347,6 +359,69 @@ export const store = {
     await F.deleteDoc(F.doc(db, "jobs", id, "private", "contact")).catch(() => {});
     await F.deleteDoc(F.doc(db, "jobs", id));
   },
+
+  /* ---- Paid plans ---- */
+  // What this employer can do now: used their free post? Monthly/Enterprise active until when?
+  async myPlan() {
+    if (!uid()) return { freeUsed: true, sub: null };
+    const [f, s] = await Promise.all([F.getDoc(F.doc(db, "freeUsed", uid())).catch(() => null), F.getDoc(F.doc(db, "subs", uid())).catch(() => null)]);
+    const sub = s?.exists() ? norm(s) : null;
+    return { freeUsed: !!f?.exists(), sub: sub && sub.until > Date.now() ? sub : null, lastSub: sub };
+  },
+  async postCap() { const { sub } = await this.myPlan(); return sub?.plan === "enterprise" ? PLANS.enterprise.postsPerMonth : LIMITS.posts; },
+  async createPayment({ kind, job, ref, payerName, src }) {
+    const p = F.doc(F.collection(db, "payments"));
+    const b = F.writeBatch(db);
+    b.set(p, { uid: uid(), kind, jobId: job?.id || null, jobTitle: job?.title || null, amount: kind === "post" ? PLANS.post.price : PLANS.monthly.price, ref, payerName: payerName || "", src: src || "", status: "pending", createdAt: F.serverTimestamp() });
+    await this._bump(b, "pays");
+    await b.commit();
+    return { id: p.id };
+  },
+  async myPayments() {
+    const s = await F.getDocs(F.query(F.collection(db, "payments"), F.where("uid", "==", uid()), F.limit(50)));
+    return s.docs.map(norm).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  },
+  // Admin
+  async listPayments(status = "pending") {
+    const s = await F.getDocs(F.query(F.collection(db, "payments"), F.where("status", "==", status), F.limit(200)));
+    return s.docs.map(norm).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  },
+  // Approve: a post becomes Pro (top of the list); a monthly payment gives 30 more days and lifts limits on their posts.
+  async approvePayment(pay) {
+    const b = F.writeBatch(db);
+    b.update(F.doc(db, "payments", pay.id), { status: "approved", decidedAt: F.serverTimestamp(), decidedBy: uid() });
+    const proPatch = (j) => ({ plan: "pro", paidAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), ...(j.status === "approved" ? { featured: true } : {}) });
+    if (pay.kind === "post") {
+      const j = await this.getJob(pay.jobId);
+      if (j) b.update(F.doc(db, "jobs", j.id), proPatch(j));
+    } else {
+      await this._giveSub(b, pay.uid, "monthly", PLANS.monthly.days);
+      const theirs = await jobsQ(F.where("ownerUid", "==", pay.uid));
+      theirs.filter((j) => j.plan === "free" || j.plan === "unpaid").forEach((j) => b.update(F.doc(db, "jobs", j.id), proPatch(j)));
+    }
+    await b.commit();
+    await this.notify(pay.uid, { type: "payment", title: "Payment confirmed", body: pay.kind === "post" ? `Your post${pay.jobTitle ? ` "${pay.jobTitle}"` : ""} is now Pro.` : "Pro monthly is on for 30 days.", link: "#/my" }).catch(() => {});
+  },
+  async rejectPayment(pay, reason) {
+    await F.updateDoc(F.doc(db, "payments", pay.id), { status: "rejected", reason: reason || "", decidedAt: F.serverTimestamp(), decidedBy: uid() });
+    await this.notify(pay.uid, { type: "payment", title: "We couldn't find your payment", body: reason || "Check the reference number and send it again, or contact support.", link: "#/my" }).catch(() => {});
+  },
+  async _giveSub(b, who, plan, days) {
+    const cur = await F.getDoc(F.doc(db, "subs", who)).catch(() => null);
+    const until = Math.max(Date.now(), cur?.exists() ? (cur.data().until?.toMillis?.() || 0) : 0) + days * DAY;
+    b.set(F.doc(db, "subs", who), { plan, until: F.Timestamp.fromMillis(until), at: F.serverTimestamp(), by: uid() });
+  },
+  // Admin gives Monthly or Enterprise by hand (e.g. Enterprise after talking to them).
+  async giveSub(who, plan, days) {
+    const b = F.writeBatch(db);
+    await this._giveSub(b, who, plan, days);
+    const theirs = await jobsQ(F.where("ownerUid", "==", who));
+    theirs.filter((j) => j.plan === "free" || j.plan === "unpaid").forEach((j) => b.update(F.doc(db, "jobs", j.id), { plan: "pro", updatedAt: F.serverTimestamp(), ...(j.status === "approved" ? { featured: true } : {}) }));
+    await b.commit();
+  },
+  async listSubs() { return (await F.getDocs(F.query(F.collection(db, "subs"), F.limit(500)))).docs.map(norm); },
+  async endSub(who) { await F.deleteDoc(F.doc(db, "subs", who)); },
+  async getSub(who) { const s = await F.getDoc(F.doc(db, "subs", who)).catch(() => null); return s?.exists() ? norm(s) : null; },
 
   /* ---- Applications ---- */
   async apply(job, message) {
@@ -367,6 +442,7 @@ export const store = {
       applicant, message: message || "", status: "new", createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(),
     });
     await this._bump(b, "applies");
+    if (job.plan === "free") b.update(F.doc(db, "jobs", job.id), { appCount: (job.appCount || 0) + 1 });
     await b.commit();
     await this.notify(job.ownerUid, { type: "application", title: `New applicant for ${job.title}`, body: `${p.fullName} applied.`, link: `#/applicants/${job.id}`, appId, jobId: job.id }).catch(() => {});
   },
@@ -557,8 +633,8 @@ export const store = {
   // Admin analytics: everything in one go (fine at early scale; capped per collection).
   async adminAll() {
     const q = async (c) => (await F.getDocs(F.query(F.collection(db, c), F.limit(5000)))).docs.map(norm);
-    const [users, jobs, apps, reports, support, bans, verified, visits, campaigns, watch] = await Promise.all([q("users"), q("jobs"), q("applications"), q("reports").catch(() => []), q("support").catch(() => []), q("bans").catch(() => []), q("verified").catch(() => []), q("visits").catch(() => []), q("campaigns").catch(() => []), q("watch").catch(() => [])]);
-    return { users, jobs, apps, reports, support, bans, verified, visits, campaigns, watch };
+    const [users, jobs, apps, reports, support, bans, verified, visits, campaigns, watch, payments] = await Promise.all([q("users"), q("jobs"), q("applications"), q("reports").catch(() => []), q("support").catch(() => []), q("bans").catch(() => []), q("verified").catch(() => []), q("visits").catch(() => []), q("campaigns").catch(() => []), q("watch").catch(() => []), q("payments").catch(() => [])]);
+    return { users, jobs, apps, reports, support, bans, verified, visits, campaigns, watch, payments };
   },
   // Tracked links / ad campaigns (admin only): name = the ?src= value.
   async saveCampaign(src, data) { await F.setDoc(F.doc(db, "campaigns", src), { ...data, updatedAt: F.serverTimestamp() }, { merge: true }); },
@@ -642,7 +718,8 @@ export const store = {
       n(F.query(C("verifyRequests"), F.where("status", "==", "pending"))), n(C("support")), n(F.query(C("support"), F.where("status", "==", "done"))),
     ]);
     const disputes = await this.listDisputes().then((l) => l.length).catch(() => null);
-    return { pending, reports, flags, verify, disputes, support: supportAll == null ? null : Math.max(0, supportAll - (supportDone || 0)) };
+    const payments = await n(F.query(C("payments"), F.where("status", "==", "pending")));
+    return { payments, pending, reports, flags, verify, disputes, support: supportAll == null ? null : Math.max(0, supportAll - (supportDone || 0)) };
   },
   async dismissFlag(id) { await F.deleteDoc(F.doc(db, "flags", id)); },
   async dismissReport(id) { await F.deleteDoc(F.doc(db, "reports", id)); },

@@ -38,6 +38,21 @@ service cloud.firestore {
           && getAfter(limPath()).data.get('month', -1) == thisMonth()
           && getAfter(limPath()).data.get('postsM', 0) == prevPostsM() + 1;
     }
+    /* ---------- Plans ----------
+       Free: an employer's first post only, up to 5 applicants (jobs.plan 'free', freeUsed/{uid} marks it used).
+       Pro: paid per post, or every post while subs/{uid} is active (monthly or enterprise). Admins turn Pro on.
+       'unpaid': a post waiting for payment. Older posts have no plan and no limits. */
+    function subPath() { return /databases/$(database)/documents/subs/$(me()); }
+    function hasSub() { return exists(subPath()) && get(subPath()).data.until > request.time; }
+    function postCap() { return hasSub() && get(subPath()).data.plan == 'enterprise' ? 30 : 5; }
+    function freePath() { return /databases/$(database)/documents/freeUsed/$(me()); }
+    // Kept short: the job create rule is close to Firestore's limit of 1000 checks per write.
+    // A free post has at most 3 openings (Pro and posts waiting for payment: up to 10).
+    function validPlanAtCreate(d) {
+      return d.plan == 'unpaid'
+          || (d.plan == 'free' && d.get('openings', 1) <= 3 && existsAfter(freePath()) && !exists(freePath()))
+          || (d.plan == 'pro' && hasSub());
+    }
     function validPhoto(p) { return p == null || p == '' || (p is string && p.size() <= 60000 && p.matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')); }
 
     /* ---------- Profiles ---------- */
@@ -109,7 +124,8 @@ service cloud.firestore {
           'area','address','addressHidden','workplace','arrangement','schedule','hours','daysOff','daysOffPer','openings','startDate','benefits',
           'reqExperience','reqEducation','reqList',
           'shiftType','shiftNote','daysPerWeek',
-          'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt','editedAt','infoNote','infoAt','rejectReason'])
+          'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt','editedAt','infoNote','infoAt','rejectReason',
+          'plan','appCount','paidAt'])
         && str(d.title, 3, 100)
         && str(d.category, 1, 40)
         && optStr(d.get('categoryOther', null), 40)
@@ -128,7 +144,7 @@ service cloud.firestore {
         && optStr(d.get('address', null), 200)
         && (d.get('addressHidden', null) == null || d.addressHidden is bool)
         && optNum(d.get('daysOff', null))
-        && (d.get('openings', null) == null || (d.openings is number && d.openings >= 1 && d.openings <= 3))
+        && (d.get('openings', null) == null || (d.openings is number && d.openings >= 1 && d.openings <= 10))
         && (d.get('daysOffPer', null) == null || d.daysOffPer in ['week', 'month'])
         && optStr(d.get('startDate', null), 10)
         && (d.get('benefits', null) == null || (d.benefits is list && d.benefits.size() <= 12))
@@ -155,15 +171,26 @@ service cloud.firestore {
                     && request.resource.data.createdAt == request.time
                     && request.resource.data.approvedAt == null
                     && request.resource.data.expiresAt == null
-                    && (isAdmin() || bumpedPost())
-                    // Email + password accounts must confirm their email before posting.
-                    && (isAdmin() || request.auth.token.firebase.sign_in_provider != 'password' || request.auth.token.email_verified == true);
+                    && request.resource.data.get('appCount', 0) == 0
+                    // Everyone but admins: counts toward the monthly limit, a valid plan, and
+                    // email + password accounts must confirm their email before posting.
+                    && (isAdmin() || (bumpedPost() && validPlanAtCreate(request.resource.data)
+                        && (request.auth.token.firebase.sign_in_provider != 'password' || request.auth.token.email_verified == true)));
       // Owners may only close their own post. Admins can change anything.
       allow update: if isAdmin()
                     || (signedIn()
                         && resource.data.ownerUid == me()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
                         && request.resource.data.status == 'closed');
+      // Applying to a free post adds 1 to its applicant count, in the same batch as the application. Stops at 5.
+      allow update: if signedIn() && notBanned()
+                    && resource.data.status == 'approved'
+                    && resource.data.get('plan', '') == 'free'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['appCount'])
+                    && request.resource.data.appCount == resource.data.get('appCount', 0) + 1
+                    && request.resource.data.appCount <= 5
+                    && !exists(/databases/$(database)/documents/applications/$(jobId + '_' + me()))
+                    && existsAfter(/databases/$(database)/documents/applications/$(jobId + '_' + me()));
       // Owners may edit their post (not a closed one). It goes back to review, and they can't
       // touch the status flags, dates, featured or the admin's note.
       allow update: if signedIn() && notBanned()
@@ -177,6 +204,7 @@ service cloud.firestore {
                          'openings','startDate','benefits','reqExperience','reqEducation','reqList','requirements','description',
                          'shiftType','shiftNote','daysPerWeek',
                          'status','updatedAt','editedAt'])
+                    && (request.resource.data.get('openings', 1) <= 3 || resource.data.get('plan', '') in ['pro', 'unpaid'])
                     && validJob(request.resource.data);
       // Owners may delete their posts when they delete their account.
       allow delete: if isAdmin() || (signedIn() && notBanned() && resource.data.ownerUid == me());
@@ -232,6 +260,9 @@ service cloud.firestore {
                     && str(request.resource.data.applicant.phone, 7, 20)
                     && validPhoto(request.resource.data.applicant.get('photo', null))
                     && bumped('applies')
+                    && (jobDoc(request.resource.data.jobId).data.get('plan', '') != 'free'
+                        || getAfter(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.get('appCount', 0)
+                             == jobDoc(request.resource.data.jobId).data.get('appCount', 0) + 1)
                     && str(request.resource.data.message, 0, 1000)
                     && request.resource.data.status == 'new'
                     && request.resource.data.createdAt == request.time;
@@ -421,10 +452,10 @@ service cloud.firestore {
       }
       allow read: if signedIn() && me() == uid;
       allow create, update: if signedIn() && me() == uid
-                    && request.resource.data.keys().hasOnly(['day', 'month', 'applies', 'posts', 'messages', 'reports', 'support', 'postsM', 'msgAt'])
+                    && request.resource.data.keys().hasOnly(['day', 'month', 'applies', 'posts', 'messages', 'reports', 'support', 'postsM', 'msgAt', 'pays'])
                     && request.resource.data.day == today()
                     && request.resource.data.get('month', thisMonth()) == thisMonth()
-                    && cnt('applies', 3) && cnt('posts', 5) && mcnt('postsM', 5) && cnt('messages', 200) && cnt('reports', 5) && cnt('support', 3)
+                    && cnt('applies', 3) && cnt('posts', 5) && mcnt('postsM', postCap()) && cnt('messages', 200) && cnt('reports', 5) && cnt('support', 3) && cnt('pays', 5)
                     && (request.resource.data.get('msgAt', null) == (resource == null ? null : resource.data.get('msgAt', null))
                         || request.resource.data.msgAt == request.time);
     }
@@ -558,6 +589,44 @@ service cloud.firestore {
                         && exists(/databases/$(database)/documents/jobs/$(request.resource.data.jobId))
                         && get(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.ownerUid == me()
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'usedBy', 'usedAt', 'jobId']));
+    }
+
+    /* ---------- Paid plans ---------- */
+    // Marks that this employer used their one free post. Made together with that post; never removed.
+    match /freeUsed/{uid} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow create: if signedIn() && me() == uid && notBanned()
+                    && request.resource.data.keys().hasOnly(['jobId', 'at'])
+                    && request.resource.data.at == request.time
+                    && request.resource.data.jobId is string
+                    && getAfter(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.ownerUid == me()
+                    && getAfter(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.plan == 'free';
+      allow update, delete: if isAdmin();
+    }
+    // Monthly or Enterprise plan. Only admins give it (after checking the payment).
+    match /subs/{uid} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow write: if isAdmin();
+    }
+    // "I paid": the employer sends the InstaPay reference number. An admin checks it and approves.
+    // Prices here must match PLANS in assets/store.js.
+    match /payments/{pid} {
+      allow read: if (signedIn() && resource.data.uid == me()) || isAdmin();
+      allow create: if signedIn() && notBanned()
+                    && request.resource.data.keys().hasOnly(['uid', 'kind', 'jobId', 'jobTitle', 'amount', 'ref', 'payerName', 'status', 'createdAt', 'src'])
+                    && request.resource.data.uid == me()
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.kind in ['post', 'monthly']
+                    && request.resource.data.amount == (request.resource.data.kind == 'post' ? 199 : 499)
+                    && str(request.resource.data.ref, 4, 40)
+                    && optStr(request.resource.data.get('payerName', null), 80)
+                    && optStr(request.resource.data.get('src', null), 40)
+                    && optStr(request.resource.data.get('jobTitle', null), 100)
+                    && (request.resource.data.kind == 'monthly'
+                        || (request.resource.data.jobId is string && jobDoc(request.resource.data.jobId).data.ownerUid == me()))
+                    && bumped('pays');
+      allow update, delete: if isAdmin();
     }
 
     match /admins/{uid} {

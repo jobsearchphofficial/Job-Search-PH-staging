@@ -3,7 +3,7 @@
 // - Asks first ("Allow / No thanks"); the choice is remembered on this device and can be changed from the footer.
 // - Sends no names, emails or phone numbers (no advanced matching, no automatic events).
 // - Only reports public pages: never chats, messages, profile, admin, ID checks or email links.
-import { META_PIXEL_ID } from "./firebase-config.js?v=1794145240";
+import { META_PIXEL_ID } from "./firebase-config.js?v=1794147561";
 
 const KEY = "jsph-ads-consent";
 const PUBLIC = /^#?\/?($|job\/|jobs|post|join\/|signin|safety|terms|privacy|support)/;
@@ -40,7 +40,7 @@ function pageView() {
 // Called by the app when something worth measuring happens: "CompleteRegistration", "SubmitApplication", "Lead".
 export function track(event, data = {}) {
   if (!loaded || !window.fbq) return;
-  const clean = Object.fromEntries(Object.entries(data).filter(([k]) => ["content_name", "content_category"].includes(k)));
+  const clean = Object.fromEntries(Object.entries(data).filter(([k]) => ["content_name", "content_category", "value", "currency"].includes(k)));
   window.fbq("track", event, clean);
 }
 

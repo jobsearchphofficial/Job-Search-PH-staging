@@ -6,7 +6,7 @@
 // so a brand-new job's address opens through the app until its page exists. Anything else goes home.
 (function () {
   var p = location.pathname;
-  if (/^\/(jobs\/[A-Za-z0-9_-]{1,64}|employers|safety|jobs)\/?$/.test(p)) {
+  if (/^\/(jobs\/[A-Za-z0-9_-]{1,64}|employers|pricing|safety|jobs)\/?$/.test(p)) {
     var q = location.search ? location.search.slice(1) + "&" : "";
     location.replace("/?" + q + "p=" + encodeURIComponent(p) + location.hash);
   } else {
