@@ -72,4 +72,9 @@ await admin((db) => setDoc(doc(db, "admins/boss"), { name: "Mark" }));
 await t("admin approves it", assertSucceeds(updateDoc(doc(ctx("boss"), "payments/pay1"), { status: "approved", decidedAt: serverTimestamp() })));
 await t("admin makes the post Pro", assertSucceeds(updateDoc(doc(ctx("boss"), "jobs/u1"), { plan: "pro", paidAt: serverTimestamp() })));
 await t("admin gives Enterprise", assertSucceeds(setDoc(doc(ctx("boss"), "subs/e2"), { plan: "enterprise", until: Timestamp.fromMillis(Date.now() + 864e5 * 30) })));
+// Closing a post with a reason
+await t("owner closes: hired someone", assertSucceeds(updateDoc(doc(ctx("e1"), "jobs/u1"), { status: "closed", closedReason: "filled", updatedAt: serverTimestamp() })));
+await admin((db) => setDoc(doc(db, "jobs/c2"), { ...job("e1", { plan: "free", status: "approved" }), createdAt: Timestamp.now(), updatedAt: Timestamp.now() }));
+await t("owner closes with a made-up reason refused", assertFails(updateDoc(doc(ctx("e1"), "jobs/c2"), { status: "closed", closedReason: "whatever", updatedAt: serverTimestamp() })));
+await t("owner closes: no longer hiring", assertSucceeds(updateDoc(doc(ctx("e1"), "jobs/c2"), { status: "closed", closedReason: "closed", updatedAt: serverTimestamp() })));
 console.log(bad ? `${bad} FAILED` : "all passed"); await env.cleanup(); process.exit(bad ? 1 : 0);

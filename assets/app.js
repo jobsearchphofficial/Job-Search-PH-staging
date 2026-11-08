@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794148699";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794148699";
-import { fitScore, rankApplicants } from "./match.js?v=1794148699";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794148699";
-import { initPixel, track } from "./pixel.js?v=1794148699";
-import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794148699";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794152766";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794152766";
+import { fitScore, rankApplicants } from "./match.js?v=1794152766";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794152766";
+import { initPixel, track } from "./pixel.js?v=1794152766";
+import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794152766";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -2796,51 +2796,145 @@ async function trackPurchases() {
 }
 
 /* ---------------- Employer: my posts + applicants ---------------- */
+const ICON_FB = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M13.5 21v-7.5h2.5l.4-3H13.5V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.8 1.4-3.8 3.9v2.3H8v3h2.5V21h3Z"/></svg>`;
+// "Share to Facebook": a ready-made square image for Facebook groups, plus the link and a caption.
+async function jobImage(j, url) {
+  const W = 1080, c = document.createElement("canvas"); c.width = W; c.height = W; const x = c.getContext("2d");
+  try { await document.fonts.ready; } catch {}
+  const F = (w, s) => `${w} ${s}px Poppins, system-ui, sans-serif`;
+  const wrap = (text, font, max, lines) => { x.font = font; const out = []; let line = "";
+    for (const w of String(text).split(/\s+/)) { const t = line ? `${line} ${w}` : w; if (x.measureText(t).width > max && line) { out.push(line); line = w; } else line = t; }
+    if (line) out.push(line); if (out.length > lines) { out.length = lines; out[lines - 1] = out[lines - 1].replace(/\s*\S*$/, "…"); } return out; };
+  x.fillStyle = "#ffffff"; x.fillRect(0, 0, W, W);
+  x.fillStyle = "#3d4fd6"; x.fillRect(0, 0, W, 200);
+  x.fillStyle = "#ffffff"; x.font = F(700, 64); x.fillText("WE'RE HIRING", 70, 125);
+  x.font = F(500, 30); x.textAlign = "right"; x.fillText("Job Search PH", W - 70, 122); x.textAlign = "left";
+  let y = 320; x.fillStyle = "#161d3a";
+  for (const l of wrap(j.title, F(700, 76), W - 140, 2)) { x.fillText(l, 70, y); y += 92; }
+  y += 10; x.fillStyle = "#15803d"; x.font = F(700, 54); x.fillText(salaryText(j), 70, y); y += 76;
+  x.fillStyle = "#4b5372"; x.font = F(500, 38); x.fillText(`📍 ${[j.area, j.city].filter(Boolean).join(", ")}`, 70, y); y += 70;
+  const tags = [j.arrangement, j.schedule || j.employmentType, j.openings > 1 ? `${j.openings} openings` : "", ...(j.benefits || []).slice(0, 3)].filter(Boolean);
+  x.font = F(500, 30); let tx = 70;
+  for (const t of tags) { const w = x.measureText(t).width + 44; if (tx + w > W - 70) { tx = 70; y += 66; } x.fillStyle = "#eef0ff"; x.beginPath(); if (x.roundRect) x.roundRect(tx, y - 40, w, 56, 28); else x.rect(tx, y - 40, w, 56); x.fill(); x.fillStyle = "#2c3aa8"; x.fillText(t, tx + 22, y - 2); tx += w + 14; }
+  // A short line from the description fills the space and tells people what the job is like.
+  y += 80; x.fillStyle = "#4b5372";
+  for (const l of wrap(String(j.description || "").replace(/_{3,}/g, "").replace(/\s+/g, " ").trim(), F(400, 34), W - 140, 3)) { if (y > W - 300) break; x.fillText(l, 70, y); y += 48; }
+  // Footer: where to apply, with a QR code to the post
+  x.fillStyle = "#f4f5fb"; x.fillRect(0, W - 250, W, 250);
+  x.fillStyle = "#161d3a"; x.font = F(700, 44); x.fillText("Apply free, no agency fees", 70, W - 150);
+  x.fillStyle = "#4b5372"; x.font = F(500, 32); x.fillText("jobsearchph.com", 70, W - 95);
+  try {
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js");
+    const box = document.createElement("div"); new window.QRCode(box, { text: url, width: 200, height: 200, correctLevel: window.QRCode.CorrectLevel.M });
+    const q = box.querySelector("canvas"); if (q) { x.drawImage(q, W - 270, W - 225, 200, 200); x.fillStyle = "#4b5372"; x.font = F(500, 22); x.textAlign = "center"; x.fillText("Scan to apply", W - 170, W - 236); x.textAlign = "left"; }
+  } catch {}
+  return c;
+}
+async function sharePanel(j) {
+  if (!j) return;
+  const url = `https://jobsearchph.com/jobs/${encodeURIComponent(j.id)}/?src=share`;
+  const caption = `We're hiring: ${j.title}${j.area || j.city ? ` in ${[j.area, j.city].filter(Boolean).join(", ")}` : ""}.\nPay: ${salaryText(j)}${j.arrangement ? ` · ${j.arrangement}` : ""}\nApply free on Job Search PH (no agency fees): ${url}`;
+  const wrap = document.createElement("div"); wrap.className = "dlg-backdrop";
+  wrap.innerHTML = `<div class="dlg dlg-share" role="dialog" aria-modal="true" aria-labelledby="sh-t"><h2 id="sh-t">Share to Facebook</h2>
+    <p class="muted small">Post the image in your town's Facebook groups (for example "Bacolod jobs" or "Buy and sell") with the text below. More people see it, more apply.</p>
+    <div class="sh-img"><p class="muted small">Making your image…</p></div>
+    <label class="small">Text to paste<textarea rows="4" readonly>${esc(caption)}</textarea></label>
+    <div class="dlg-actions sh-actions">
+      <button class="btn btn-primary" data-sh="native" hidden>Share image</button>
+      <button class="btn btn-ghost" data-sh="dl">Save image</button>
+      <button class="btn btn-ghost" data-sh="copy">Copy text</button>
+      <a class="btn btn-fb" data-sh="fb" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}" target="_blank" rel="noopener">${ICON_FB} Share link</a>
+      <button class="btn btn-ghost" data-sh="x">Close</button></div></div>`;
+  document.body.appendChild(wrap);
+  const done = () => wrap.remove();
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) done(); });
+  const canvas = await jobImage(j, url).catch(() => null);
+  const blob = canvas ? await new Promise((r) => canvas.toBlob(r, "image/png")) : null;
+  const file = blob ? new File([blob], `${j.title.replace(/[^A-Za-z0-9]+/g, "-").slice(0, 40)}-JobSearchPH.png`, { type: "image/png" }) : null;
+  const imgBox = wrap.querySelector(".sh-img");
+  if (blob) { const u = URL.createObjectURL(blob); imgBox.innerHTML = `<img src="${u}" alt="Image for your post: ${esc(j.title)}">`; } else imgBox.innerHTML = `<p class="muted small">Couldn't make the image. You can still share the link.</p>`;
+  const nat = wrap.querySelector('[data-sh="native"]');
+  if (file && navigator.canShare?.({ files: [file] })) nat.hidden = false;
+  wrap.querySelector(".sh-actions").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-sh]"); if (!b) return; const k = b.dataset.sh;
+    if (k === "x") return done();
+    if (k === "copy") { try { await navigator.clipboard.writeText(caption); toast("Text copied"); } catch { wrap.querySelector("textarea").select(); toast("Press Copy on your keyboard"); } return; }
+    if (k === "dl" && blob) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); toast("Image saved"); return; }
+    if (k === "native") { try { await navigator.share({ files: [file], text: caption }); } catch {} return; }
+  });
+}
+
 async function viewMy() {
   document.title = "My posts | Job Search PH";
   const { user, profile } = getAuthState();
   if (!user) return goSignIn("Sign in to manage your posts");
   if (!profile) { location.hash = "#/profile"; return; }
   app.innerHTML = `<div class="page-head"><h1>My posts</h1><a class="btn btn-primary" href="#/post">Post a job</a></div><div id="mine">${SK.rows(4)}</div>`;
+  let jobsById = {}, appsBy = {};
   const draw = async () => {
     const [list, apps, pays, plan] = await Promise.all([store.myJobs(), store.applicationsForEmployer().catch(() => []), trackPurchases(), store.myPlan().catch(() => ({}))]);
     if (!$("#mine")) return;
     const payFor = (j) => pays.find((x) => x.status === "pending" && (x.jobId === j.id || x.kind === "monthly"));
+    const paidFor = (j) => pays.find((x) => x.status === "approved" && x.jobId === j.id);
+    const proBtn = (j, label, primary) => `<a class="btn ${primary ? "btn-primary" : "btn-ghost"} btn-sm" href="#/pay/post/${encodeURIComponent(j.id)}">${label} · ₱${PLANS.post.price}</a>`;
+    // One plan line on every post, so the employer always knows where they stand.
     const planLine = (j, n) => {
-      if (j.plan === "pro") return `<div class="plan-line pro"><span class="plan-chip pro">Pro</span> Unlimited applicants${j.status === "approved" ? " · shown at the top" : ""} <a class="btn btn-ghost btn-sm" href="#/post/similar/${encodeURIComponent(j.id)}">Post a similar job</a></div>`;
-      if (j.plan === "unpaid") return payFor(j)
-        ? `<div class="plan-line wait"><span class="plan-chip">Payment sent</span> We're checking it, usually within a few hours.</div>`
-        : `<div class="plan-line due"><span class="plan-chip due">Not paid yet</span> We'll review this post after you pay. <a class="btn btn-primary btn-sm" href="#/pay/post/${encodeURIComponent(j.id)}">Pay ₱${PLANS.post.price}</a></div>`;
-      if (j.plan === "free") {
-        const used = Math.max(n, j.appCount || 0), full = used >= PLANS.free.maxApplicants;
-        if (payFor(j)) return `<div class="plan-line wait"><span class="plan-chip">Free</span> ${used} of ${PLANS.free.maxApplicants} applicants · payment sent, we're checking it.</div>`;
-        return `<div class="plan-line ${full ? "due" : ""}"><span class="plan-chip">Free</span> ${full ? `<strong>Full: ${used} of ${PLANS.free.maxApplicants} applicants.</strong> It stopped taking applications.` : `${used} of ${PLANS.free.maxApplicants} applicants`} <a class="btn ${full ? "btn-primary" : "btn-ghost"} btn-sm" href="#/pay/post/${encodeURIComponent(j.id)}">${full ? "Reopen with Pro" : "Make it Pro"} · ₱${PLANS.post.price}</a></div>`;
+      if (j.plan === "pro") {
+        const how = j.paidAt || paidFor(j) ? `<span class="plan-chip ok">Payment confirmed</span>` : plan.sub ? `<span class="plan-chip ok">Included in ${esc(PLANS[plan.sub.plan]?.name || "your plan")}</span>` : "";
+        return `<div class="plan-line pro"><span class="plan-chip pro">Pro</span>${how} Unlimited applicants${j.status === "approved" ? " · shown at the top" : ""}${j.status !== "closed" ? ` <a class="btn btn-ghost btn-sm" href="#/post/similar/${encodeURIComponent(j.id)}">Post a similar job</a>` : ""}</div>`;
       }
-      return "";
+      if (j.plan === "unpaid") return payFor(j)
+        ? `<div class="plan-line wait"><span class="plan-chip pro">Pro</span><span class="plan-chip">Payment sent</span> We're checking it, usually within a few hours.</div>`
+        : `<div class="plan-line due"><span class="plan-chip due">Not paid yet</span> We'll review this post after you pay. ${proBtn(j, "Pay", true)}</div>`;
+      if (j.plan === "free") {
+        const used = Math.max(n, j.appCount || 0), cap = PLANS.free.maxApplicants, full = used >= cap, near = used >= cap - 2;
+        if (payFor(j)) return `<div class="plan-line wait"><span class="plan-chip">Free · ${used} of ${cap} applicants</span><span class="plan-chip">Payment sent</span> We're checking it.</div>`;
+        if (j.status === "closed") return `<div class="plan-line"><span class="plan-chip">Free · ${used} of ${cap} applicants</span></div>`;
+        return `<div class="plan-line ${full ? "due" : ""}"><span class="plan-chip ${near ? "due" : ""}">Free · ${used} of ${cap} applicants</span>${full ? ` <strong>Full.</strong> It stopped taking applications. ${proBtn(j, "Reopen with Pro", true)}` : near ? ` Almost full. ${proBtn(j, "Make it Pro", false)} <a class="small" href="/pricing/">See plans</a>` : ""}</div>`;
+      }
+      // Posts from before plans existed: no applicant limit.
+      return `<div class="plan-line"><span class="plan-chip">Free · ${n} applicant${n === 1 ? "" : "s"}</span>${isLive(j) ? ` ${proBtn(j, "Move it to the top", false)}` : ""}</div>`;
     };
-    const subLine = plan.sub ? `<div class="plan-banner">${ICON.check}<span><strong>${esc(PLANS[plan.sub.plan]?.name || "Pro")} is on</strong> until ${new Date(plan.sub.until).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}. Every new post is Pro.</span> <a class="btn btn-ghost btn-sm" href="#/plan">My plan</a></div>`
-      : `<div class="plan-banner muted-banner"><span>Hiring often? <strong>Pro monthly</strong> makes every post Pro for ₱${PLANS.monthly.price}/month.</span> <a class="btn btn-ghost btn-sm" href="#/plan">My plan</a></div>`;
+    const subLine = plan.sub ? `<div class="plan-banner">${ICON.check}<span><strong>${esc(PLANS[plan.sub.plan]?.name || "Pro")} is on</strong> until ${new Date(plan.sub.until).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}. Every new post is Pro.</span> <a class="btn btn-ghost btn-sm" href="#/plan">My plan</a></div>` : "";
     list.sort((a, b) => b.createdAt - a.createdAt);
-    const by = {}; apps.forEach((a) => { (by[a.jobId] ||= []).push(a); });
+    jobsById = Object.fromEntries(list.map((j) => [j.id, j]));
+    appsBy = {}; apps.forEach((a) => { (appsBy[a.jobId] ||= []).push(a); });
     $("#mine").innerHTML = (list.length ? subLine : "") + (list.length ? `<div class="table">${list.map((j) => {
-      const a = by[j.id] || []; const fresh = a.filter((x) => x.status === "new").length;
+      const a = appsBy[j.id] || []; const fresh = a.filter((x) => x.status === "new").length;
+      const reviewing = j.status === "pending" && j.plan !== "unpaid" && !j.infoNote;
       return `
       <div class="trow">
-        <div><a href="/jobs/${encodeURIComponent(j.id)}/"><strong>${esc(j.title)}</strong></a> ${statusBadge(j)}
+        <div><a href="/jobs/${encodeURIComponent(j.id)}/"><strong>${esc(j.title)}</strong></a> ${statusBadge(j)}${j.status === "closed" && j.closedReason === "filled" ? ` <span class="badge badge-approved">Hired</span>` : ""}
           <div class="muted small">${esc(j.city)} · posted ${ago(j.createdAt)}${j.expiresAt ? ` · ${isLive(j) ? "expires" : "expired"} ${new Date(j.expiresAt).toLocaleDateString("en-PH")}` : ""}</div>
+          ${reviewing ? `<p class="review-note">We check posts within a day. We'll email you when it's live.</p>` : ""}
           ${j.status === "rejected" ? `<div class="info-ask"><strong>Not approved${j.rejectReason ? ":" : "."}</strong> ${j.rejectReason ? `${esc(j.rejectReason)}.` : ""}<span class="small muted"> Edit the post to fix it, and we'll check it again.</span></div>` : ""}
           ${planLine(j, a.length)}
-          ${j.status === "pending" && j.infoNote ? `<div class="info-ask"><strong>We need a bit more before approving this post:</strong> ${esc(j.infoNote)}.<span class="small muted"> Add your Facebook link or permit on your <a href="#/profile">profile</a>, or send the rest to us.</span><a class="btn btn-primary btn-sm" href="#/support" data-reply-info="${esc(j.id)}">Reply to Job Search PH</a></div>` : ""}</div>
-        <div><a class="btn btn-ghost btn-sm" href="#/applicants/${encodeURIComponent(j.id)}">${a.length} applicant${a.length === 1 ? "" : "s"}${fresh ? ` <span class="dot">${fresh} new</span>` : ""}</a></div>
-        <div class="actions">${j.status !== "closed" ? `<a class="btn btn-ghost btn-sm" href="#/post/edit/${encodeURIComponent(j.id)}">Edit</a>` : ""}${j.status === "approved" || j.status === "pending" ? `<button class="btn btn-ghost btn-sm" data-close="${esc(j.id)}">Mark filled / close</button>` : ""}</div>
+          ${j.status === "pending" && j.infoNote ? `<div class="info-ask"><strong>We need a bit more before approving this post:</strong> ${esc(j.infoNote)}.<span class="small muted"> Add your Facebook link or permit on your <a href="#/profile">profile</a>, or send the rest to us.</span><a class="btn btn-primary btn-sm" href="#/support" data-reply-info="${esc(j.id)}">Reply to Job Search PH</a></div>` : ""}
+          ${isLive(j) && !isFull(j) ? `<div class="next-step"><button type="button" class="btn btn-fb btn-sm" data-share="${esc(j.id)}">${ICON_FB} Share to Facebook</button><span class="muted small">Post it in your town's Facebook groups to get more applicants.</span></div>` : ""}</div>
+        <div><a class="btn ${fresh ? "btn-primary" : "btn-ghost"} btn-sm" href="#/applicants/${encodeURIComponent(j.id)}">View applicants (${a.length})${fresh ? ` <span class="dot">${fresh} new</span>` : ""}</a></div>
+        <div class="actions">${j.status !== "closed" ? `<a class="btn btn-ghost btn-sm" href="#/post/edit/${encodeURIComponent(j.id)}">Edit</a>` : ""}${j.status === "approved" || j.status === "pending" ? `<button class="btn btn-ghost btn-sm" data-hired="${esc(j.id)}">Hired someone</button><button class="btn btn-ghost btn-sm" data-close="${esc(j.id)}">Close post</button>` : ""}</div>
       </div>`; }).join("")}</div>` : `<div class="empty"><p>You haven't posted any jobs yet. Your first post is free.</p></div>`);
+  };
+  const closeJob = async (id, reason) => {
+    try { await store.updateJob(id, { status: "closed", closedReason: reason }); jobsCache = null; toast(reason === "filled" ? "Congrats on the hire! Post closed." : "Post closed"); draw(); }
+    catch { toast("Could not close post"); }
   };
   $("#mine").addEventListener("click", async (e) => {
     const r = e.target.closest("[data-reply-info]");
     if (r) { const t = e.target.closest(".trow")?.querySelector("strong")?.textContent || ""; supportPrefill = { topic: "A job post or employer", message: `About my post "${t}" (ID ${r.dataset.replyInfo}):\n`, page: `/jobs/${r.dataset.replyInfo}/` }; return; }
+    const sh = e.target.closest("[data-share]"); if (sh) return sharePanel(jobsById[sh.dataset.share]);
+    const h = e.target.closest("[data-hired]");
+    if (h) {
+      const id = h.dataset.hired, n = (appsBy[id] || []).length;
+      const pick = await showDialog({ title: "Who did you hire?", body: n ? "If you hired someone who applied here, send them the job offer. When they accept, it goes on their work history and the post closes." : "We'll close the post so jobseekers stop applying.",
+        actions: [...(n ? [{ label: "Someone who applied here", value: "app", primary: true }] : []), { label: n ? "Someone else" : "Close the post", value: "other", primary: !n }, { label: "Cancel", value: null }] });
+      if (pick === "app") { toast("Tap “Offer the job” on the person you hired"); go(`#/applicants/${encodeURIComponent(id)}`); }
+      else if (pick === "other") closeJob(id, "filled");
+      return;
+    }
     const b = e.target.closest("[data-close]"); if (!b) return;
     if (!confirmInline(b, "Click again to close")) return;
-    try { await store.updateJob(b.dataset.close, { status: "closed" }); jobsCache = null; toast("Post closed"); draw(); } catch { toast("Could not close post"); }
+    closeJob(b.dataset.close, "closed");
   });
   draw().catch((e) => { console.error(e); $("#mine").innerHTML = `<p class="error">Could not load your posts (${esc(e.code || e.message)}).</p>`; });
 }

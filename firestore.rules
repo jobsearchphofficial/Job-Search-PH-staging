@@ -180,7 +180,8 @@ service cloud.firestore {
       allow update: if isAdmin()
                     || (signedIn()
                         && resource.data.ownerUid == me()
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'closedReason'])
+                        && request.resource.data.get('closedReason', 'closed') in ['filled', 'closed']
                         && request.resource.data.status == 'closed');
       // Applying to a free post adds 1 to its applicant count, in the same batch as the application. Stops at 5.
       allow update: if signedIn() && notBanned()
