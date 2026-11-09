@@ -143,7 +143,7 @@ service cloud.firestore {
           'reqExperience','reqEducation','reqList',
           'shiftType','shiftNote','daysPerWeek',
           'ownerUid','status','featured','createdAt','updatedAt','approvedAt','expiresAt','editedAt','infoNote','infoAt','rejectReason',
-          'plan','appCount','paidAt'])
+          'plan','appCount','paidAt','inviteId'])
         && str(d.title, 3, 100)
         && str(d.category, 1, 40)
         && optStr(d.get('categoryOther', null), 40)
@@ -210,6 +210,15 @@ service cloud.firestore {
                     && request.resource.data.appCount <= 5
                     && !exists(/databases/$(database)/documents/applications/$(jobId + '_' + me()))
                     && existsAfter(/databases/$(database)/documents/applications/$(jobId + '_' + me()));
+      // A post made from a "Pro, already paid" link becomes Pro. The link must be Pro and used by this owner for this post.
+      allow update: if signedIn() && resource.data.ownerUid == me()
+                    && resource.data.get('plan', '') == 'unpaid'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['plan', 'paidAt', 'inviteId'])
+                    && request.resource.data.plan == 'pro' && request.resource.data.paidAt == request.time
+                    && request.resource.data.inviteId is string
+                    && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.get('pro', false) == true
+                    && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.get('jobId', '') == jobId
+                    && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.get('usedBy', '') == me();
       // Owners may edit their post (not a closed one). It goes back to review, and they can't
       // touch the status flags, dates, featured or the admin's note.
       allow update: if signedIn() && notBanned()
@@ -597,11 +606,12 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list, delete: if isAdmin();
       allow create: if isAdmin()
-                    && request.resource.data.keys().hasOnly(['label', 'title', 'd', 'status', 'createdAt', 'createdBy', 'expiresAt'])
+                    && request.resource.data.keys().hasOnly(['label', 'title', 'd', 'status', 'createdAt', 'createdBy', 'expiresAt', 'pro'])
+                    && request.resource.data.get('pro', false) is bool
                     && str(request.resource.data.label, 1, 80) && str(request.resource.data.title, 1, 100)
                     && request.resource.data.d is map && request.resource.data.status == 'open'
                     && request.resource.data.createdBy == me();
-      allow update: if (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'd', 'title', 'label']))
+      allow update: if (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'd', 'title', 'label', 'pro']))
                     || (signedIn() && notBanned() && resource.data.status == 'open'
                         && request.time < resource.data.expiresAt
                         && request.resource.data.status == 'used' && request.resource.data.usedBy == me()
@@ -632,6 +642,8 @@ service cloud.firestore {
     // Prices here must match PLANS in assets/store.js.
     match /payments/{pid} {
       allow read: if (signedIn() && resource.data.uid == me()) || isAdmin();
+      // Admins record payments made another way (cash, a transfer before the post existed, Enterprise).
+      allow create: if isAdmin();
       allow create: if signedIn() && notBanned()
                     && request.resource.data.keys().hasOnly(['uid', 'kind', 'jobId', 'jobTitle', 'amount', 'ref', 'payerName', 'status', 'createdAt', 'src'])
                     && request.resource.data.uid == me()

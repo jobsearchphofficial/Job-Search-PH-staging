@@ -1714,3 +1714,4 @@ h2, h3 { font-weight: 700; letter-spacing: -.01em; }
 .pro-nudge:hover { background: var(--soft-line); text-decoration: none; }
 .pn-icon { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--indigo); color: #fff; font-size: .75rem; font-weight: 700; }
 .pn-price { padding: 1px 8px; border-radius: 999px; background: var(--card); color: var(--navy); font-weight: 600; font-size: .78rem; }
+.give-posts { flex-basis: 100%; } .give-posts .an-att li { align-items: center; }

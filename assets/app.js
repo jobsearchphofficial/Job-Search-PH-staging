@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794212534";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794212534";
-import { fitScore, rankApplicants } from "./match.js?v=1794212534";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794212534";
-import { initPixel, track } from "./pixel.js?v=1794212534";
-import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794212534";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794213347";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794213347";
+import { fitScore, rankApplicants } from "./match.js?v=1794213347";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794213347";
+import { initPixel, track } from "./pixel.js?v=1794213347";
+import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794213347";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -320,7 +320,11 @@ function autosave(k, form) { let t; const go = () => { clearTimeout(t); t = setT
 const INVITE_KEY = "jsph-invite";
 const inviteToken = () => { try { return sessionStorage.getItem(INVITE_KEY) || ""; } catch { return ""; } };
 const setInviteToken = (t) => { try { t ? sessionStorage.setItem(INVITE_KEY, t) : sessionStorage.removeItem(INVITE_KEY); } catch {} };
-const INVITE_SKIP = ["agreeWage", "agreeFee", "agreeAge", "agreeTerms", "cMethod", "cValue", "inviteFor"];
+// A link opened before signing in: remembered (3 days) so sign-in, sign-up and setup lead back to it.
+const PENDING_INVITE = "jsph-invite-pending";
+const pendingInvite = () => { try { const v = JSON.parse(localStorage.getItem(PENDING_INVITE) || "null"); return v && Date.now() - v.t < 3 * 864e5 ? v.token : ""; } catch { return ""; } };
+const setPendingInvite = (t) => { try { t ? localStorage.setItem(PENDING_INVITE, JSON.stringify({ token: t, t: Date.now() })) : localStorage.removeItem(PENDING_INVITE); } catch {} };
+const INVITE_SKIP = ["agreeWage", "agreeFee", "agreeAge", "agreeTerms", "cMethod", "cValue", "inviteFor", "invitePro", "planPick"];
 const draftNote = () => `<p class="draft-note">${ICON.check}<span>We restored what you typed before. </span><button type="button" class="linkbtn" data-draft-clear>Start over</button></p>`;
 
 /* ---------------- Helpers ---------------- */
@@ -758,6 +762,8 @@ function finishAuthFlow() {
   startSignup = false;
   const { profile } = getAuthState();
   if (!profile) { location.hash = "#/profile"; return; }
+  const pend = pendingInvite();
+  if (pend) { returnTo = null; go(`#/invite/${pend}`); return; }
   const to = returnTo && !/^#\/(signin|profile)/.test(returnTo) ? returnTo : "#/";
   returnTo = null;
   go(to);
@@ -1404,7 +1410,7 @@ function viewSignIn() {
   if (getAuthState().user) return finishAuthFlow();
   let mode = startSignup ? "signup" : "signin";
   // Sign-up answers survive switching between "Sign in" and "Create account".
-  const su = { role: signupIntent || "", firstName: "", middleName: "", lastName: "", birthDate: "", email: "" };
+  const su = { role: signupIntent || (pendingInvite() ? "employer" : ""), firstName: "", middleName: "", lastName: "", birthDate: "", email: "" };
   const keep = () => {
     const f = $("#email-form"); if (!f) return;
     ["firstName", "middleName", "lastName", "birthDate", "email"].forEach((k) => { if (f[k]) su[k] = f[k].value; });
@@ -1614,10 +1620,12 @@ function viewEmployerSetup({ user, p, su, knownName }) {
         if (no) FOUNDERS = await store.founders();
         myAppsCache = null; pendingName = ""; signupIntent = ""; clearSignupInfo(); clearDraft("role");
         try { sessionStorage.removeItem("jsph:emp-setup"); } catch {}
+        // Came from a "post for you" link: go straight back to the prepared post.
+        if (pendingInvite()) { holdRoute = false; renderNav(); toast("You're all set. Here's your job post."); go(`#/invite/${pendingInvite()}`); return; }
         app.innerHTML = `<div class="ob"><div class="ob-card ob-done">
           <span class="ob-done-ico">${ICON.check || "✓"}</span>
           <h1>You're all set${a.firstName ? `, ${esc(tidyName(a.firstName))}` : ""}</h1>
-          <p class="ob-hint">${no ? `You're founding employer #${no} on Job Search PH. ` : ""}Post your first job now. It's free, and we usually check it within a day.</p>
+          <p class="ob-hint">${no ? `You're founding employer #${no} on Job Search PH. ` : ""}Post your first job now. Your first post is free, and we usually check it within a day.</p>
           <a class="btn btn-primary btn-block" href="#/post">Post a job</a>
           <a class="btn btn-ghost btn-block" href="#/">Later</a>
         </div></div>`;
@@ -1643,7 +1651,7 @@ function viewProfile(focus) {
   if (!p.fullName) p.fullName = pendingName || user.displayName || "";
   if (su?.firstName) { Object.assign(p, { firstName: su.firstName, middleName: su.middleName, lastName: su.lastName }); if (su.birthDate && !p.birthDate) p.birthDate = su.birthDate; }
   if (!p.firstName && !p.lastName) Object.assign(p, splitName(p.fullName));
-  let role = p.role || (isNew ? signupIntent || su?.role : "") || "";
+  let role = p.role || (isNew ? signupIntent || su?.role || (pendingInvite() ? "employer" : "") : "") || "";
   if (isNew && !role) { try { const k = draftKey("role"); role = (k && localStorage.getItem(k)) || ""; } catch {} }
   const guided = isNew && !!(signupIntent || su?.role); // came from "Create account", "Create a profile", "Apply" or "Post a job"
   // New profile: the name (and a jobseeker's birthdate) given at sign-up aren't asked again. "Edit" shows the boxes.
@@ -2264,8 +2272,13 @@ async function viewPost(editId = null, { assist = false, similar = null } = {}) 
   // Which plan this new post will use (see PLANS in store.js).
   const isAdm = getAuthState().isAdmin;
   const myPlan = !editJob && !assist && !isAdm ? await store.myPlan().catch(() => ({ freeUsed: true, sub: null })) : { freeUsed: true, sub: null };
+  const invTok = !editJob && !assist ? inviteToken() : "";
+  const invInfo = invTok ? await store.getInvite(invTok) : null;
+  const proInvite = !!(invInfo?.pro && invInfo.status === "open");
   if (!editJob && !assist && !location.hash.startsWith("#/post")) return;
-  const planCard = editJob || assist || isAdm ? "" : myPlan.sub
+  const planCard = editJob || assist || isAdm ? "" : proInvite
+    ? `<section class="pcard plan-card"><p class="plan-on">${ICON.check}<span><strong>Pro is already paid for this post.</strong> Unlimited applicants, shown at the top for 30 days, up to 10 openings. Nothing more to pay.</span></p></section>`
+    : myPlan.sub
     ? `<section class="pcard plan-card"><p class="plan-on">${ICON.check}<span><strong>${esc(PLANS[myPlan.sub.plan]?.name || "Pro")} is on</strong> until ${new Date(myPlan.sub.until).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}. This post is Pro: unlimited applicants and shown at the top.</span></p></section>`
     : `<section class="pcard plan-card"><header><span class="num">9</span><div><h2>Choose your plan</h2><p>${myPlan.freeUsed ? "You've used your free post." : "Your first post is free."} <a href="/pricing/" target="_blank">Compare plans</a></p></div></header>
         <div class="plan-pick" role="radiogroup">
@@ -2288,6 +2301,7 @@ async function viewPost(editId = null, { assist = false, similar = null } = {}) 
       <form id="post-form" class="form post-form" novalidate>
         ${assist ? `<section class="pcard assist-card">
           <label class="fld">Who is this for? *<input name="inviteFor" required maxlength="80" placeholder="e.g. DB Uy, clinic on Lacson St"><span class="hint">Only admins see this, so you can find the link later.</span></label>
+          <label class="check"><input type="checkbox" name="invitePro"><span><strong>They already paid for Pro.</strong> Their post becomes Pro (unlimited applicants, top of the list) with no payment step.</span></label>
         </section>` : ""}
         <section class="pcard">
           <header><span class="num">1</span><div><h2>Who's hiring?</h2><p>This sets the right pay rules and job options.</p></div></header>
@@ -2621,14 +2635,14 @@ async function viewPost(editId = null, { assist = false, similar = null } = {}) 
     if (/_{3,}/.test(data.description)) return fail("Fill in the blanks (___) in the job description, or delete the lines you don't need.", f.description);
     { const floor = payFloor({ ...data, workplace: workplace() }); if (floor?.blocked) return fail(floor.blockMsg, f.salaryMin); }
     if (data.workplace !== "business" && !(data.daysOff >= 2)) return fail("The minimum is 2 days off per month.", f.daysOff);
-    const pick = editJob || assist || isAdm ? "" : myPlan.sub ? "pro" : val("planPick") || "post";
-    const proPost = isAdm || assist || ["pro", "post", "monthly"].includes(pick) || (editJob && ["pro", "unpaid"].includes(editJob.plan));
+    const pick = editJob || assist || isAdm ? "" : proInvite ? "invitepro" : myPlan.sub ? "pro" : val("planPick") || "post";
+    const proPost = isAdm || assist || ["pro", "post", "monthly", "invitepro"].includes(pick) || (editJob && ["pro", "unpaid"].includes(editJob.plan));
     if (data.openings > 3 && !proPost) return fail(editJob ? "More than 3 openings is a Pro feature. Upgrade this post to Pro from My posts first." : "More than 3 openings is a Pro feature. Choose Pro post or Pro monthly below.", f.openings);
     if (assist) {
       const d = formValues(f); INVITE_SKIP.forEach((k) => delete d[k]);
       const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Creating…";
       try {
-        const token = await store.createInvite({ label: f.inviteFor.value.trim().slice(0, 80), title: data.title.slice(0, 100), d });
+        const token = await store.createInvite({ label: f.inviteFor.value.trim().slice(0, 80), title: data.title.slice(0, 100), d, pro: !!f.invitePro?.checked });
         clearDraft(DK);
         return showInviteLink(token, f.inviteFor.value.trim(), data.title);
       } catch (ex) {
@@ -2665,9 +2679,13 @@ async function viewPost(editId = null, { assist = false, similar = null } = {}) 
       const made = await store.createJob(data, contact, plan);
       track("Lead", { content_name: "job_post", content_category: data.category });
       clearDraft("post");
-      if (invited) { await store.useInvite(invited, made.id).catch((e) => console.warn("invite", e)); setInviteToken(""); }
+      if (invited) {
+        await store.useInvite(invited, made.id).catch((e) => console.warn("invite", e));
+        if (pick === "invitepro") await store.proFromInvite(made.id, invited).catch((e) => console.warn("invite pro", e));
+        setInviteToken("");
+      }
       jobsCache = null;
-      if (plan === "unpaid") { go(pick === "monthly" ? `#/pay/monthly/${made.id}` : `#/pay/post/${made.id}`); return; }
+      if (plan === "unpaid" && pick !== "invitepro") { go(pick === "monthly" ? `#/pay/monthly/${made.id}` : `#/pay/post/${made.id}`); return; }
       app.innerHTML = `<div class="empty next-steps"><h1>Thanks! Your post is in review.</h1>
         <ol class="next-list">
           <li><strong>We check it,</strong> usually within a day, so jobseekers can trust what they see.</li>
@@ -2778,7 +2796,7 @@ async function viewPlan() {
     ${current}
     ${pendingPay ? `<div class="plan-banner muted-banner"><span>We're checking your payment of <strong>₱${pendingPay.amount}</strong> (ref. ${esc(pendingPay.ref)}), usually within a few hours.</span></div>` : ""}
     <section class="pcard"><h2 class="h3">Your posts</h2>${[...pro, ...(free ? [free] : []), ...unpaid].length ? `<ul class="plan-posts">${[...unpaid, ...pro, ...(free ? [free] : [])].map(postRow).join("")}</ul>` : `<p class="muted">No posts yet. <a href="#/post">Post a job</a></p>`}</section>
-    <section class="pcard"><h2 class="h3">Payments</h2>${pays.length ? `<table class="pay-table"><thead><tr><th>Date</th><th>For</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>${pays.map((x) => `<tr><td>${fmtD(x.createdAt)}</td><td>${x.kind === "post" ? `Pro post${x.jobTitle ? `: ${esc(x.jobTitle)}` : ""}` : "Pro monthly (30 days)"}</td><td>₱${fmtN(x.amount)}</td><td>${esc(x.ref)}</td><td>${status(x)}${x.status === "rejected" && x.reason ? `<div class="muted small">${esc(x.reason)}</div>` : ""}</td></tr>`).join("")}</tbody></table>
+    <section class="pcard"><h2 class="h3">Payments</h2>${pays.length ? `<table class="pay-table"><thead><tr><th>Date</th><th>For</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>${pays.map((x) => `<tr><td>${fmtD(x.createdAt)}</td><td>${x.kind === "post" ? `Pro post${x.jobTitle ? `: ${esc(x.jobTitle)}` : ""}` : x.kind === "enterprise" ? "Enterprise" : "Pro monthly (30 days)"}</td><td>₱${fmtN(x.amount)}</td><td>${esc(x.ref)}</td><td>${status(x)}${x.status === "rejected" && x.reason ? `<div class="muted small">${esc(x.reason)}</div>` : ""}</td></tr>`).join("")}</tbody></table>
       <p class="muted small">Questions about a payment? <a href="#/support" data-payhelp>Contact support</a>.</p>` : `<p class="muted">No payments yet.</p>`}</section>`;
   $("[data-enterprise]")?.addEventListener("click", () => { supportPrefill = { topic: "Enterprise plan", message: "Hi! About our Enterprise plan:\n" }; });
   $("[data-payhelp]")?.addEventListener("click", () => { supportPrefill = { topic: "Payments and plans", message: "About my payment:\n" }; });
@@ -3421,7 +3439,9 @@ async function copyText(t) { try { await navigator.clipboard.writeText(t); toast
 async function viewInvite(token) {
   document.title = "Your job post | Job Search PH";
   const { user, profile } = getAuthState();
+  setPendingInvite(token);
   if (!user) {
+    signupIntent = "employer"; returnTo = `#/invite/${token}`;
     app.innerHTML = `<div class="empty"><h1>Your job post is ready</h1><p class="muted">Job Search PH prepared a job post for you. Sign in to check it and post it.</p>
       <p><a class="btn btn-primary" href="#/signin" data-action="gosignin" data-intent="employer" data-purpose="Sign in to see your job post">Sign in to see it</a></p>
       <p class="small muted">Tip: "Continue with Google" is the quickest.</p></div>`;
@@ -3429,15 +3449,15 @@ async function viewInvite(token) {
   }
   app.innerHTML = `<div class="empty"><p class="muted">Opening your job post…</p></div>`;
   const inv = await store.getInvite(token);
-  const stop = (h, p) => { app.innerHTML = `<div class="empty"><h1>${h}</h1><p class="muted">${p}</p><p><a class="btn btn-primary" href="#/support">Contact support</a></p></div>`; };
+  const stop = (h, p) => { setPendingInvite(""); app.innerHTML = `<div class="empty"><h1>${h}</h1><p class="muted">${p}</p><p><a class="btn btn-primary" href="#/support">Contact support</a></p></div>`; };
   if (!inv || inv.status === "cancelled") return stop("This link doesn't work", "It may have been cancelled or typed wrong. Ask Job Search PH for a new link.");
   if (inv.status === "used") return inv.usedBy === user.uid
-    ? (app.innerHTML = `<div class="empty"><h1>You already posted this job</h1><p class="muted">Find it in My posts.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a></p></div>`)
+    ? (setPendingInvite(""), app.innerHTML = `<div class="empty"><h1>You already posted this job</h1><p class="muted">Find it in My posts.</p><p><a class="btn btn-primary" href="#/my">Go to My posts</a></p></div>`)
     : stop("This link was already used", "Each link works once. Ask Job Search PH for a new one.");
   if (inv.expiresAt && inv.expiresAt < Date.now()) return stop("This link has expired", "Links work for 30 days. Ask Job Search PH for a new one.");
   if (profile?.role !== "employer") { returnTo = `#/invite/${token}`; return (app.innerHTML = `<div class="empty"><h1>This is a job post for an employer</h1><p class="muted">Your profile is set to "I'm looking for work". Switch it to "I'm hiring" to post this job.</p><p><a class="btn btn-primary" href="#/profile">Change profile type</a></p></div>`); }
   try { localStorage.setItem(draftKey("post"), JSON.stringify({ t: Date.now(), d: inv.d || {} })); } catch {}
-  setInviteToken(token);
+  setInviteToken(token); setPendingInvite("");
   go("#/post");
 }
 
@@ -3863,7 +3883,7 @@ async function renderPayments(body) {
   const users = Object.fromEntries((all?.users || []).map((u) => [u.id, u]));
   const who = (id) => { const u = users[id] || {}; return `<a href="#/admin/user/${encodeURIComponent(id)}">${esc(u.fullName || "Employer")}</a>${u.companyName ? ` · ${esc(u.companyName)}` : ""}${u.phone ? ` · <span class="copyable">${esc(u.phone)}</span>` : ""}`; };
   const when = (t) => (t ? new Date(t).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
-  const what = (x) => (x.kind === "post" ? `Pro post${x.jobTitle ? `: <a href="/jobs/${encodeURIComponent(x.jobId)}/">${esc(x.jobTitle)}</a>` : ""}` : "Pro monthly (30 days)");
+  const what = (x) => (x.kind === "post" ? `Pro post${x.jobTitle ? `: <a href="/jobs/${encodeURIComponent(x.jobId)}/">${esc(x.jobTitle)}</a>` : ""}` : x.kind === "enterprise" ? "Enterprise" : "Pro monthly (30 days)");
   const monthStart = new Date(new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 7) + "-01T00:00:00+08:00").getTime();
   const monthRev = approved.filter((x) => (x.decidedAt || x.createdAt) >= monthStart).reduce((n, x) => n + (x.amount || 0), 0);
   const allRev = approved.reduce((n, x) => n + (x.amount || 0), 0);
@@ -3877,12 +3897,15 @@ async function renderPayments(body) {
         <p class="adm-meta">${what(x)} · ${who(x.uid)} · sent ${when(x.createdAt)}${x.src ? ` · came from <strong>${esc(x.src)}</strong>` : ""}</p>
       </div><div class="adm-card-actions"><button class="btn btn-primary btn-sm" data-pay-ok="${esc(x.id)}">Payment received</button><button class="btn btn-ghost btn-sm" data-pay-no="${esc(x.id)}">Can't find it</button></div></article>`).join("")}</div>`
       : `<div class="adm-empty">${ADMIN_ICONS.archive}<p><strong>All clear.</strong> No payments to check.</p></div>`}
-    <h2 class="an-h">Give a plan by hand <span class="an-sub">for Enterprise, or a payment made another way</span></h2>
+    <h2 class="an-h">Give Pro by hand <span class="an-sub">they paid you another way, or Enterprise</span></h2>
     <form class="an-card give-plan" id="give-plan">
-      <label class="small">Employer's email<input name="email" type="email" required placeholder="owner@business.com"></label>
-      <label class="small">Plan<select name="plan"><option value="enterprise">Enterprise (30 posts a month)</option><option value="monthly">Pro monthly (5 posts a month)</option></select></label>
-      <label class="small">Days<input name="days" type="number" min="1" max="366" value="30"></label>
-      <button class="btn btn-primary btn-sm" type="submit">Give plan</button><p class="small muted" id="give-msg"></p>
+      <label class="small">Employer's email or name<input name="email" required placeholder="owner@business.com or Ana Reyes" list="emp-list" autocomplete="off"></label>
+      <datalist id="emp-list">${(all?.users || []).filter((u) => u.role === "employer").map((u) => `<option value="${esc(u.email || u.fullName)}">${esc(u.fullName)}${u.companyName ? ` · ${esc(u.companyName)}` : ""}</option>`).join("")}</datalist>
+      <label class="small">What<select name="plan"><option value="post">Pro post (choose which post)</option><option value="monthly">Pro monthly (5 posts a month)</option><option value="enterprise">Enterprise (30 posts a month)</option></select></label>
+      <label class="small" data-days>Days<input name="days" type="number" min="1" max="366" value="30"></label>
+      <label class="small">They paid (₱)<input name="amount" type="number" min="0" max="1000000" placeholder="e.g. 199"><span class="muted">Counts as revenue. Leave empty if free.</span></label>
+      <button class="btn btn-primary btn-sm" type="submit">Continue</button><p class="small muted" id="give-msg"></p>
+      <div id="give-posts" class="give-posts"></div>
     </form>
     <h2 class="an-h">On a plan now</h2>
     <div class="an-card">${activeSubs.length ? `<ul class="an-att">${activeSubs.map((x) => `<li><span class="an-why">${esc(PLANS[x.plan]?.name || x.plan)}</span>${who(x.id)}<span class="muted small">until ${new Date(x.until).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} <button class="linkbtn" data-sub-end="${esc(x.id)}">End now</button></span></li>`).join("")}</ul>` : `<p class="muted small">Nobody yet.</p>`}</div>
@@ -3903,14 +3926,32 @@ async function renderPayments(body) {
     if (!confirmInline(b, "Click again to end it")) return;
     await store.endSub(b.dataset.subEnd).catch(() => toast("Couldn't end it")); renderPayments(body);
   }));
-  $("#give-plan").addEventListener("submit", async (e) => {
-    e.preventDefault(); const f = e.target, msg = $("#give-msg");
-    const email = f.email.value.trim().toLowerCase();
-    const u = (all?.users || []).find((x) => (x.email || "").toLowerCase() === email);
-    if (!u) { msg.textContent = "No account with that email. Ask them to make an employer account first."; return; }
-    if (u.role !== "employer") { msg.textContent = `${u.fullName} has a jobseeker profile. They need to switch to "I'm hiring" first.`; return; }
-    try { await store.giveSub(u.id, f.plan.value, Math.max(1, Math.min(366, Number(f.days.value) || 30))); toast(`${PLANS[f.plan.value].name} given to ${u.fullName}`); renderPayments(body); }
-    catch (ex) { msg.textContent = `Couldn't save (${ex.code || ex.message}).`; }
+  const gf = $("#give-plan"), syncDays = () => { gf.querySelector("[data-days]").hidden = gf.plan.value === "post"; };
+  gf.plan.addEventListener("change", () => { syncDays(); $("#give-posts").innerHTML = ""; }); syncDays();
+  gf.addEventListener("submit", async (e) => {
+    e.preventDefault(); const f = e.target, msg = $("#give-msg"); msg.textContent = ""; $("#give-posts").innerHTML = "";
+    const q = f.email.value.trim().toLowerCase();
+    const emps = (all?.users || []).filter((x) => x.role === "employer");
+    const u = emps.find((x) => (x.email || "").toLowerCase() === q) || emps.find((x) => (x.fullName || "").toLowerCase() === q)
+      || (emps.filter((x) => `${x.fullName} ${x.companyName || ""}`.toLowerCase().includes(q)).length === 1 ? emps.find((x) => `${x.fullName} ${x.companyName || ""}`.toLowerCase().includes(q)) : null);
+    if (!u) { msg.textContent = (all?.users || []).some((x) => (x.email || "").toLowerCase() === q) ? "That account has a jobseeker profile. They need to switch to \u201cI'm hiring\u201d first." : "No single employer matches. Use their email, or ask them to make an employer account first."; return; }
+    const amount = Math.max(0, Math.round(Number(f.amount.value) || 0));
+    if (f.plan.value !== "post") {
+      try {
+        await store.giveSub(u.id, f.plan.value, Math.max(1, Math.min(366, Number(f.days.value) || 30)));
+        if (amount) await store.adminRecordPayment(u.id, f.plan.value, amount, u.src || "");
+        toast(`${PLANS[f.plan.value].name} given to ${u.fullName}`); renderPayments(body);
+      } catch (ex) { msg.textContent = `Couldn't save (${ex.code || ex.message}).`; }
+      return;
+    }
+    const posts = (all?.jobs || []).filter((j) => j.ownerUid === u.id && j.status !== "closed").sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (!posts.length) { msg.textContent = `${u.fullName} has no open posts yet. Send them a \u201cPost for an employer\u201d link with \u201cThey already paid for Pro\u201d ticked instead.`; return; }
+    $("#give-posts").innerHTML = `<p class="small"><strong>${esc(u.fullName)}</strong>: which post becomes Pro?</p><ul class="an-att">${posts.map((j) => `<li><span>${esc(j.title)} ${statusBadge(j)} ${planBadge(j)}</span>${j.plan === "pro" ? `<span class="muted small">Already Pro</span>` : `<button type="button" class="btn btn-primary btn-sm" data-make-pro="${esc(j.id)}">Make Pro</button>`}</li>`).join("")}</ul>`;
+    $("#give-posts").querySelectorAll("[data-make-pro]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await store.adminMakePro(posts.find((j) => j.id === b.dataset.makePro), amount, u.src || ""); jobsCache = null; toast("Post is now Pro"); renderPayments(body); }
+      catch (ex) { b.disabled = false; msg.textContent = `Couldn't save (${ex.code || ex.message}).`; }
+    }));
   });
 }
 
@@ -4310,7 +4351,7 @@ async function viewAdmin() {
     body.innerHTML = `<p><a class="btn btn-primary" href="#/post/assist">+ New post for an employer</a></p>` + (list == null ? `<p class="error">Couldn't load the links. Publish the latest database rules, then refresh.</p>`
       : list.length ? `<div class="adm-list">${list.map((i) => `<article class="adm-card"><div class="adm-card-main">
           <div class="adm-tags">${tag(i)}</div>
-          <h3 class="adm-title">${esc(i.title)} · for ${esc(i.label)}</h3>
+          <h3 class="adm-title">${esc(i.title)} · for ${esc(i.label)}${i.pro ? ` <span class="plan-chip pro">Pro · paid</span>` : ""}</h3>
           <p class="adm-meta">Made ${i.createdAt ? new Date(i.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric" }) : "just now"}${i.status === "used" && i.jobId ? ` · <a href="/jobs/${esc(i.jobId)}/">Their post</a> · <a href="#/admin/user/${encodeURIComponent(i.usedBy)}">Their account</a>` : ""}</p>
           ${i.status === "open" ? `<div class="invite-link"><input readonly value="${esc(inviteUrl(i.id))}" aria-label="Invite link"></div>` : ""}
         </div>${i.status === "open" ? `<div class="adm-card-actions"><button class="btn btn-primary btn-sm" data-act="invitecopy" data-id="${esc(i.id)}">Copy link</button><button class="btn btn-ghost btn-sm" data-act="invitecancel" data-id="${esc(i.id)}">Cancel link</button></div>` : ""}</article>`).join("")}</div>`
@@ -4726,6 +4767,8 @@ async function route() {
     if (!returnTo) returnTo = here();
     location.hash = "#/profile"; return;
   }
+  // Someone opened a "post for you" link before signing in: take them back to it.
+  if (user && profile && pendingInvite() && ["", "post", "my"].includes(page || "")) { go(`#/invite/${pendingInvite()}`); return; }
   if (!page) return viewList();
   // Keep only the ID: share menus sometimes glue the title/text onto the link ("…/job/abc123%20Live-in%20Yaya").
   if (page === "job" && arg) {

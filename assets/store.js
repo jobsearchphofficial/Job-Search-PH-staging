@@ -1,6 +1,6 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1794212534";
-import { PRICES } from "./pages.js?v=1794212534";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1794213347";
+import { PRICES } from "./pages.js?v=1794213347";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -522,15 +522,27 @@ export const store = {
   },
   async withdraw(id) { await F.deleteDoc(F.doc(db, "applications", id)); },
   // "Post for an employer": an admin prepares the post, the employer opens the link, checks it and posts it.
-  async createInvite({ label, title, d }) {
+  async createInvite({ label, title, d, pro = false }) {
     const a = new Uint8Array(15); crypto.getRandomValues(a);
     const token = [...a].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
-    await F.setDoc(F.doc(db, "invites", token), { label, title, d, status: "open", createdBy: uid(), createdAt: F.serverTimestamp(), expiresAt: F.Timestamp.fromMillis(Date.now() + 30 * DAY) });
+    await F.setDoc(F.doc(db, "invites", token), { label, title, d, pro: !!pro, status: "open", createdBy: uid(), createdAt: F.serverTimestamp(), expiresAt: F.Timestamp.fromMillis(Date.now() + 30 * DAY) });
     return token;
   },
   async getInvite(token) { try { const s = await F.getDoc(F.doc(db, "invites", token)); return s.exists() ? norm(s) : null; } catch { return null; } },
   async listInvites() { return (await F.getDocs(F.query(F.collection(db, "invites"), F.orderBy("createdAt", "desc"), F.limit(100)))).docs.map(norm); },
   async cancelInvite(token) { await F.updateDoc(F.doc(db, "invites", token), { status: "cancelled" }); },
+  // The post came from a "Pro, already paid" link: it becomes Pro (the rules check the link).
+  async proFromInvite(jobId, token) { await F.updateDoc(F.doc(db, "jobs", jobId), { plan: "pro", paidAt: F.serverTimestamp(), inviteId: token }); },
+  // Admin: make any post Pro (paid another way). Optionally record the payment so it counts as revenue.
+  async adminMakePro(job, amount = 0, src = "") {
+    const b = F.writeBatch(db);
+    b.update(F.doc(db, "jobs", job.id), { plan: "pro", paidAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), ...(job.status === "approved" ? { featured: true } : {}) });
+    if (amount > 0) b.set(F.doc(F.collection(db, "payments")), { uid: job.ownerUid, kind: "post", jobId: job.id, jobTitle: job.title || "", amount, ref: "Paid outside the site", payerName: "", src, status: "approved", createdAt: F.serverTimestamp(), decidedAt: F.serverTimestamp(), decidedBy: uid() });
+    await b.commit();
+  },
+  async adminRecordPayment(who, kind, amount, src = "") {
+    await F.addDoc(F.collection(db, "payments"), { uid: who, kind, jobId: null, jobTitle: null, amount, ref: "Paid outside the site", payerName: "", src, status: "approved", createdAt: F.serverTimestamp(), decidedAt: F.serverTimestamp(), decidedBy: uid() });
+  },
   async useInvite(token, jobId) { await F.updateDoc(F.doc(db, "invites", token), { status: "used", usedBy: uid(), usedAt: F.serverTimestamp(), jobId }); },
 
   /* ---- Delete my account ---- */
