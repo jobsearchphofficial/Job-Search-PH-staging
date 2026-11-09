@@ -131,7 +131,7 @@ async function main() {
 
   const eligible = users.filter((u) => u.alerts === true && u.role === "jobseeker" && /.+@.+\..+/.test(u.email || "")
     && (u.jobCategories || []).length && /^[A-Za-z0-9]{32}$/.test(u.alertsToken || "")
-    && (u.signIn !== "password" || u.emailVerified === true) // email + password accounts: only once confirmed
+    && u.emailVerified === true // only confirmed addresses (Google sign-in counts as confirmed)
     && !banned.has(u.id) && !unsubbed.has(u.alertsToken) && (!ONLY || low(u.email) === ONLY));
   console.log(`${users.length} opted in, ${eligible.length} eligible, ${jobs.filter(isLive).length} live jobs.`);
 

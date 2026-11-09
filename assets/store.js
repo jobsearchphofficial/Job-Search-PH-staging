@@ -1,6 +1,6 @@
 // Data layer: Firebase Auth + Firestore (+ Storage for resume files when enabled).
-import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1794208289";
-import { PRICES } from "./pages.js?v=1794208289";
+import { firebaseConfig, IS_STAGING, LISTING_DAYS, RESUME_UPLOADS, HELPER_URL, SMS_ON } from "./firebase-config.js?v=1794212534";
+import { PRICES } from "./pages.js?v=1794212534";
 
 const CDN = "https://www.gstatic.com/firebasejs/10.12.2";
 const DAY = 86400000;
@@ -131,13 +131,15 @@ export const store = {
   },
   // Adds "bump the counter" to a batch. Posts count per month (postsM); everything else per day.
   // Throws LimitError when the cap is reached.
-  async _bump(batch, kind, extra = {}) {
+  // slot = the document this bump pays for (the rules accept one document per bump).
+  async _bump(batch, kind, extra = {}, slot = "") {
     const u = await this.usage();
     const field = kind === "posts" ? "postsM" : kind;
     const cap = kind === "posts" ? await this.postCap() : LIMITS[kind];
     if ((u[field] || 0) >= cap) throw new LimitError(kind);
     const next = { day: phDay(), month: phMonth(), applies: u.applies, posts: u.posts, messages: u.messages, reports: u.reports, support: u.support, postsM: u.postsM, pays: u.pays, [field]: (u[field] || 0) + 1, ...extra };
     if (u.msgAt && !("msgAt" in extra)) next.msgAt = u.msgAt;
+    if (slot) next.slot = slot;
     batch.set(F.doc(db, "limits", uid()), next);
   },
   async init() {
@@ -330,7 +332,7 @@ export const store = {
     b.set(ref, { ...data, ownerUid: uid(), status: "pending", featured: false, plan, appCount: 0, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(), approvedAt: null, expiresAt: null });
     b.set(F.doc(db, "jobs", ref.id, "private", "contact"), contact);
     if (plan === "free") b.set(F.doc(db, "freeUsed", uid()), { jobId: ref.id, at: F.serverTimestamp() });
-    if (!state.isAdmin) await this._bump(b, "posts");
+    if (!state.isAdmin) await this._bump(b, "posts", {}, ref.id);
     await b.commit();
     return { id: ref.id };
   },
@@ -373,7 +375,7 @@ export const store = {
     const p = F.doc(F.collection(db, "payments"));
     const b = F.writeBatch(db);
     b.set(p, { uid: uid(), kind, jobId: job?.id || null, jobTitle: job?.title || null, amount: kind === "post" ? PLANS.post.price : PLANS.monthly.price, ref, payerName: payerName || "", src: src || "", status: "pending", createdAt: F.serverTimestamp() });
-    await this._bump(b, "pays");
+    await this._bump(b, "pays", {}, p.id);
     await b.commit();
     return { id: p.id };
   },
@@ -441,7 +443,7 @@ export const store = {
       jobArrangement: job.arrangement || "", employerName: job.employerName || "", employerUid: job.ownerUid, applicantUid: uid(),
       applicant, message: message || "", status: "new", createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp(),
     });
-    await this._bump(b, "applies");
+    await this._bump(b, "applies", {}, appId);
     if (job.plan === "free") b.update(F.doc(db, "jobs", job.id), { appCount: (job.appCount || 0) + 1 });
     await b.commit();
     await this.notify(job.ownerUid, { type: "application", title: `New applicant for ${job.title}`, body: `${p.fullName} applied.`, link: `#/applicants/${job.id}`, appId, jobId: job.id }).catch(() => {});
@@ -586,9 +588,10 @@ export const store = {
     const u = await this.usage();
     if (u.msgAt && typeof u.msgAt.toMillis === "function" && Date.now() - u.msgAt.toMillis() < 2500) throw Object.assign(new Error("slow"), { code: "too-fast" });
     const b = F.writeBatch(db);
-    b.set(F.doc(F.collection(db, "applications", a.id, "messages")), { fromUid: me, text, createdAt: F.serverTimestamp(), ...(photo ? { photo } : {}) });
+    const mref = F.doc(F.collection(db, "applications", a.id, "messages"));
+    b.set(mref, { fromUid: me, text, createdAt: F.serverTimestamp(), ...(photo ? { photo } : {}) });
     const preview = photo ? `📷 Photo${text ? `: ${text}` : ""}` : text;
-    await this._bump(b, "messages", { msgAt: F.serverTimestamp() });
+    await this._bump(b, "messages", { msgAt: F.serverTimestamp() }, `${a.id}/${mref.id}`);
     await b.commit();
     const otherSeen = iAmEmployer ? a.applicantSeenAt : a.employerSeenAt;
     const otherCaughtUp = !a.lastMessageAt || a.lastMessageFrom === (iAmEmployer ? a.applicantUid : a.employerUid) || (otherSeen && otherSeen >= a.lastMessageAt);
@@ -626,8 +629,9 @@ export const store = {
   async sendSupport(d) {
     if (!uid()) return void (await F.addDoc(F.collection(db, "support"), { ...d, uid: "", createdAt: F.serverTimestamp() }));
     const b = F.writeBatch(db);
-    b.set(F.doc(F.collection(db, "support")), { ...d, uid: uid(), createdAt: F.serverTimestamp() });
-    await this._bump(b, "support");
+    const sref = F.doc(F.collection(db, "support"));
+    b.set(sref, { ...d, uid: uid(), createdAt: F.serverTimestamp() });
+    await this._bump(b, "support", {}, sref.id);
     await b.commit();
   },
   // Admin analytics: everything in one go (fine at early scale; capped per collection).
@@ -696,8 +700,9 @@ export const store = {
   /* ---- Reports ---- */
   async report(jobId, reason, details) {
     const b = F.writeBatch(db);
-    b.set(F.doc(F.collection(db, "reports")), { jobId, reason, details, createdAt: F.serverTimestamp() });
-    await this._bump(b, "reports");
+    const rref = F.doc(F.collection(db, "reports"));
+    b.set(rref, { jobId, reason, details, createdAt: F.serverTimestamp() });
+    await this._bump(b, "reports", {}, rref.id);
     await b.commit();
   },
   async listReports() {

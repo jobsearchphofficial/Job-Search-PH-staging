@@ -28,15 +28,24 @@ service cloud.firestore {
           && getAfter(limPath()).data.day == today()
           && getAfter(limPath()).data.get(f, 0) == prevCount(f) + 1;
     }
+    // One counter bump pays for ONE write: the limits doc names the document it paid for (its "slot").
+    // Without this, a batch of several applications/messages/reports could share one bump.
+    // Until Nov 12, 2026 a bump with no slot still counts, so pages opened before the update keep working.
+    function slotted(s) {
+      let slot = getAfter(limPath()).data.get('slot', null);
+      return slot == s || (slot == null && request.time < timestamp.date(2026, 11, 12));
+    }
     // Job posts are limited per Philippine calendar month (field postsM, month = year * 12 + month).
     function thisMonth() { return (request.time + duration.value(8, 'h')).year() * 12 + (request.time + duration.value(8, 'h')).month(); }
-    function prevPostsM() {
-      return exists(limPath()) && get(limPath()).data.get('month', -1) == thisMonth() ? get(limPath()).data.get('postsM', 0) : 0;
-    }
-    function bumpedPost() {
-      return existsAfter(limPath())
-          && getAfter(limPath()).data.get('month', -1) == thisMonth()
-          && getAfter(limPath()).data.get('postsM', 0) == prevPostsM() + 1;
+    // Kept lean (let = computed once): the job create rule is close to the 1000-check limit.
+    function bumpedPost(s) {
+      let m = thisMonth();
+      let before = exists(limPath()) ? get(limPath()).data : {};
+      let after = getAfter(limPath()).data;
+      let slot = after.get('slot', null);
+      return after.get('month', -1) == m
+          && after.get('postsM', 0) == (before.get('month', -1) == m ? before.get('postsM', 0) : 0) + 1
+          && (slot == s || (slot == null && request.time < timestamp.date(2026, 11, 12)));
     }
     /* ---------- Plans ----------
        Free: an employer's first post only, up to 5 applicants (jobs.plan 'free', freeUsed/{uid} marks it used).
@@ -58,6 +67,13 @@ service cloud.firestore {
     /* ---------- Profiles ---------- */
     // First and last name: at least two words of 2+ characters.
     function fullName(n) { return n.matches('[ ]*[^ ]{2,}( +[^ ]+)* +[^ ]{2,}[ ]*') && n.matches('(?s).*\\p{L}\\p{L}.* .*\\p{L}\\p{L}.*'); }
+    // The email robot writes to the profile's email, so it must be the sign-in email (or unchanged),
+    // and "confirmed" can only be set when the account's email really is confirmed.
+    function ownEmail(d, old) {
+      return (d.get('email', '') in ['', request.auth.token.get('email', '')] || (old != null && d.get('email', '') == old.get('email', '')))
+          && (d.get('emailVerified', false) != true || request.auth.token.get('email_verified', false) == true
+              || (old != null && old.get('emailVerified', false) == true && d.get('email', '') == old.get('email', '')));
+    }
     function validProfile(d) {
       return d.keys().hasOnly([
           'role','fullName','phone','city','messenger','consent','createdAt','updatedAt',
@@ -110,8 +126,10 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if (signedIn() && me() == uid) || isAdmin();
       // A new or changed name must be a full name (two words). Older one-word names can stay until edited.
-      allow create: if signedIn() && me() == uid && notBanned() && validProfile(request.resource.data) && fullName(request.resource.data.fullName);
+      allow create: if signedIn() && me() == uid && notBanned() && validProfile(request.resource.data) && fullName(request.resource.data.fullName)
+                    && ownEmail(request.resource.data, null);
       allow update: if signedIn() && me() == uid && notBanned() && validProfile(request.resource.data)
+                    && ownEmail(request.resource.data, resource.data)
                     && (request.resource.data.fullName == resource.data.fullName || fullName(request.resource.data.fullName));
       allow delete: if (signedIn() && me() == uid) || isAdmin();
     }
@@ -174,7 +192,7 @@ service cloud.firestore {
                     && request.resource.data.get('appCount', 0) == 0
                     // Everyone but admins: counts toward the monthly limit, a valid plan, and
                     // email + password accounts must confirm their email before posting.
-                    && (isAdmin() || (bumpedPost() && validPlanAtCreate(request.resource.data)
+                    && (isAdmin() || (bumpedPost(jobId) && validPlanAtCreate(request.resource.data)
                         && (request.auth.token.firebase.sign_in_provider != 'password' || request.auth.token.email_verified == true)));
       // Owners may only close their own post. Admins can change anything.
       allow update: if isAdmin()
@@ -260,7 +278,7 @@ service cloud.firestore {
                     && str(request.resource.data.applicant.fullName, 2, 80)
                     && str(request.resource.data.applicant.phone, 7, 20)
                     && validPhoto(request.resource.data.applicant.get('photo', null))
-                    && bumped('applies')
+                    && bumped('applies') && slotted(appId)
                     && (jobDoc(request.resource.data.jobId).data.get('plan', '') != 'free'
                         || getAfter(/databases/$(database)/documents/jobs/$(request.resource.data.jobId)).data.get('appCount', 0)
                              == jobDoc(request.resource.data.jobId).data.get('appCount', 0) + 1)
@@ -333,7 +351,7 @@ service cloud.firestore {
                              && request.resource.data.photo.size() <= 150000
                              && request.resource.data.photo.matches('data:image/jpeg;base64,[A-Za-z0-9+/=]+')))
                       && request.resource.data.createdAt == request.time
-                      && bumped('messages')
+                      && bumped('messages') && slotted(appId + '/' + mid)
                       && getAfter(limPath()).data.msgAt == request.time
                       && (!exists(limPath()) || get(limPath()).data.get('msgAt', null) == null
                           || request.time > get(limPath()).data.msgAt + duration.value(2, 's'));
@@ -422,7 +440,7 @@ service cloud.firestore {
                     && str(request.resource.data.message, 10, 2000)
                     && str(request.resource.data.page, 0, 200)
                     && ((request.resource.data.uid == '' && !signedIn())
-                        || (signedIn() && request.resource.data.uid == me() && bumped('support')))
+                        || (signedIn() && request.resource.data.uid == me() && bumped('support') && slotted(sid)))
                     && request.resource.data.createdAt == request.time;
       allow read, delete: if isAdmin();
       // Admins mark messages done (kept as history) or reopen them.
@@ -431,7 +449,7 @@ service cloud.firestore {
 
     /* ---------- Reports ---------- */
     match /reports/{reportId} {
-      allow create: if signedIn() && notBanned() && bumped('reports')
+      allow create: if signedIn() && notBanned() && bumped('reports') && slotted(reportId)
                     && request.resource.data.keys().hasOnly(['jobId', 'reason', 'details', 'createdAt'])
                     && str(request.resource.data.jobId, 1, 64)
                     && request.resource.data.reason in ['fee', 'scam', 'illegal', 'wrong', 'filled', 'other']
@@ -453,7 +471,8 @@ service cloud.firestore {
       }
       allow read: if signedIn() && me() == uid;
       allow create, update: if signedIn() && me() == uid
-                    && request.resource.data.keys().hasOnly(['day', 'month', 'applies', 'posts', 'messages', 'reports', 'support', 'postsM', 'msgAt', 'pays'])
+                    && request.resource.data.keys().hasOnly(['day', 'month', 'applies', 'posts', 'messages', 'reports', 'support', 'postsM', 'msgAt', 'pays', 'slot'])
+                    && optStr(request.resource.data.get('slot', null), 200)
                     && request.resource.data.day == today()
                     && request.resource.data.get('month', thisMonth()) == thisMonth()
                     && cnt('applies', 3) && cnt('posts', 5) && mcnt('postsM', postCap()) && cnt('messages', 200) && cnt('reports', 5) && cnt('support', 3) && cnt('pays', 5)
@@ -626,7 +645,7 @@ service cloud.firestore {
                     && optStr(request.resource.data.get('jobTitle', null), 100)
                     && (request.resource.data.kind == 'monthly'
                         || (request.resource.data.jobId is string && jobDoc(request.resource.data.jobId).data.ownerUid == me()))
-                    && bumped('pays');
+                    && bumped('pays') && slotted(pid);
       allow update, delete: if isAdmin();
     }
 

@@ -42,6 +42,9 @@ let sent = 0, capped = false;
 const cache = new Map();
 const cached = (k, fn) => { if (!cache.has(k)) cache.set(k, fn()); return cache.get(k); };
 const getUser = (id) => cached(`u:${id}`, () => get(`users/${id}`));
+// Only email addresses the account has confirmed (Google sign-in counts). The database rules make sure the
+// profile email is the account's own sign-in email, so nobody can point our emails at someone else.
+const mailable = (u) => !!u && /.+@.+\..+/.test(u.email || "") && u.emailVerified === true;
 const getJob = (id) => cached(`j:${id}`, () => get(`jobs/${id}`));
 const appsFor = (jobId) => cached(`a:${jobId}`, () => query("applications", [["jobId", "EQUAL", jobId]]));
 const seen = async (key) => !!(await get(`mailLog/${key}`));
@@ -93,7 +96,7 @@ async function applicantDigests() {
   const today = phDay(now), evening = phHour(now) >= DIGEST_HOUR;
   for (const [uid, apps] of byEmployer) {
     const emp = await getUser(uid);
-    if (!emp?.email || emp.emailNotify === false) { for (const a of apps) await mark(`app_${a.id}`, "skipped"); continue; }
+    if (!mailable(emp) || emp.emailNotify === false) { for (const a of apps) await mark(`app_${a.id}`, "skipped"); continue; }
     // Before the evening, send only if an earlier day's email never went out (the robot missed that evening).
     let missedDay = false;
     for (const d of new Set(apps.map((a) => phDay(a.createdAt)).filter((d) => d < today))) if (!(await seen(`digest_${uid}_${d}`))) missedDay = true;
@@ -152,7 +155,7 @@ async function postUpdates(since) {
   for (const j of jobs) {
     if (j.status === "pending") pendingForAdmin.push(j);
     const emp = await getUser(j.ownerUid);
-    const ok = emp?.email && emp.emailNotify !== false;
+    const ok = mailable(emp) && emp.emailNotify !== false;
     const where = [j.area, j.city].filter(Boolean).join(", ");
     const postCard = card(`<div style="font-size:12px;color:#777777;text-transform:uppercase;letter-spacing:.5px;">Your post</div>
       <div style="font-size:16px;font-weight:bold;color:#111111;margin:2px 0 6px 0;">${esc(j.title)}</div>
@@ -206,7 +209,7 @@ async function seekerUpdates(since) {
     for (const t of todo) {
       if (await seen(t.key)) continue;
       const u = await getUser(a.applicantUid);
-      if (!u?.email || u.emailNotify === false) { await mark(t.key, "skipped"); continue; }
+      if (!mailable(u) || u.emailNotify === false) { await mark(t.key, "skipped"); continue; }
       const html = layout({ title: t.title, preheader: t.subject, body: `<p style="margin:0 0 12px 0;font-size:16px;line-height:26px;color:#2b2f3a;">Hi ${esc(first(u.fullName))},</p>${t.body}`, footerNote: seekerNote });
       await deliver(t.key, u.email, { subject: t.subject, html, text: `${t.subject}. ${link("#/applications", "email-seek")}` });
       if (capped) return;
@@ -249,7 +252,7 @@ async function verifyUpdates(since) {
     const key = `verify_${r.id}_${r.status}_${r.decidedAt || r.updatedAt}`;
     if (await seen(key)) continue;
     const emp = await getUser(r.id);
-    if (!emp?.email) { await mark(key, "skipped"); continue; }
+    if (!mailable(emp)) { await mark(key, "skipped"); continue; }
     const ok = r.status === "approved";
     const seeker = emp.role === "jobseeker";
     if (r.status === "expired") r.reason = "we didn't get to it within 14 days, so we deleted your photos to keep them safe";
@@ -382,7 +385,7 @@ async function employerReminders() {
   jobs.forEach((j) => (byOwner[j.ownerUid] ||= []).push(j));
   let n = 0;
   for (const emp of emps) {
-    if (!emp.email || emp.emailNotify === false || banned.has(emp.id)) continue;
+    if (!mailable(emp) || emp.emailNotify === false || banned.has(emp.id)) continue;
     const posts = byOwner[emp.id] || [];
     if (posts.some((j) => j.status === "pending" || (j.status === "approved" && (!j.expiresAt || j.expiresAt > now)))) continue;
     let key, subject, title, body;
