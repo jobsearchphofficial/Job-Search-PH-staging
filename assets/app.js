@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794152766";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794152766";
-import { fitScore, rankApplicants } from "./match.js?v=1794152766";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794152766";
-import { initPixel, track } from "./pixel.js?v=1794152766";
-import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794152766";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794208106";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794208106";
+import { fitScore, rankApplicants } from "./match.js?v=1794208106";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794208106";
+import { initPixel, track } from "./pixel.js?v=1794208106";
+import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794208106";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -2713,7 +2713,6 @@ async function viewPay(kind, jobId) {
     <div class="pay-layout">
       <section class="pcard pay-qr">
         <img src="/assets/instapay-qr.png?v=2" alt="InstaPay QR code for Job Search PH" width="382" height="360">
-        <p class="small muted">Account name shows as <strong>MA*K CH******N J.</strong> (the owner of Job Search PH).</p>
         <a class="btn btn-ghost btn-sm" href="/assets/instapay-qr.png?v=2" download="JobSearchPH-InstaPay-QR.png">Save QR image</a>
       </section>
       <section class="pcard pay-steps">
