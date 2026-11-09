@@ -3,7 +3,7 @@
 // - Asks first ("Allow / No thanks"); the choice is remembered on this device and can be changed from the footer.
 // - Sends no names, emails or phone numbers (no advanced matching, no automatic events).
 // - Only reports public pages: never chats, messages, profile, admin, ID checks or email links.
-import { META_PIXEL_ID } from "./firebase-config.js?v=1794213347";
+import { META_PIXEL_ID } from "./firebase-config.js?v=1794221093";
 
 const KEY = "jsph-ads-consent";
 const PUBLIC = /^#?\/?($|job\/|jobs|post|join\/|signin|safety|terms|privacy|support)/;
@@ -48,8 +48,8 @@ function banner() {
   if (document.getElementById("ads-consent")) return;
   const el = document.createElement("div");
   el.id = "ads-consent"; el.className = "consent"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Cookies");
-  el.innerHTML = `<p>We use cookies to improve Job Search PH. <a href="/#/privacy">Learn more</a></p>
-    <div class="consent-actions"><button type="button" class="btn btn-ghost btn-sm" data-c="no">No thanks</button><button type="button" class="btn btn-primary btn-sm" data-c="yes">Allow</button></div>`;
+  el.innerHTML = `<div class="consent-text"><strong>🍪 We use cookies</strong><p>They help us improve Job Search PH and see which of our ads bring people here. <a href="/#/privacy">Learn more</a></p></div>
+    <div class="consent-actions"><button type="button" class="btn btn-ghost" data-c="no">No thanks</button><button type="button" class="btn btn-primary" data-c="yes">Allow cookies</button></div>`;
   el.addEventListener("click", (e) => {
     const b = e.target.closest("[data-c]"); if (!b) return;
     remember(b.dataset.c); el.remove();

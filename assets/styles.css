@@ -1358,13 +1358,18 @@ input.bad { border-color: var(--red, #c0392b); box-shadow: 0 0 0 3px rgba(192, 5
   .msel:nth-child(odd) .msel-list { left: 0; right: auto; }
 }
 /* Ad cookie choice */
-.consent { position: fixed; z-index: 60; left: 16px; right: 16px; bottom: 16px; max-width: 560px; margin: 0 auto; display: flex; gap: 14px; align-items: center; justify-content: space-between; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
-.consent p { margin: 0; font-size: .86rem; line-height: 1.45; color: var(--slate); }
-.consent p strong { color: var(--navy); }
-.consent-actions { display: flex; gap: 8px; flex: none; }
-@media (max-width: 560px) { .consent { flex-direction: column; align-items: stretch; } .consent-actions { justify-content: flex-end; } }
-.consent { max-width: 460px; }
-@media (max-width: 560px) { .consent { flex-direction: row; align-items: center; } }
+.consent { position: fixed; z-index: 60; left: 16px; right: 16px; bottom: 16px; max-width: 760px; margin: 0 auto; display: flex; gap: 18px; align-items: center; justify-content: space-between; padding: 18px 22px; background: #161d3a; color: #fff; border-radius: 18px; box-shadow: 0 12px 40px rgba(22, 29, 58, .35); animation: consent-in .3s ease-out; }
+.consent-text strong { display: block; font-size: 1.05rem; margin-bottom: 4px; color: #fff; }
+.consent p { margin: 0; font-size: .95rem; line-height: 1.5; color: #d9ddef; }
+.consent a { color: #fff; text-decoration: underline; font-weight: 600; }
+.consent-actions { display: flex; gap: 10px; flex: none; }
+.consent .btn-ghost { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .45); }
+.consent .btn-ghost:hover { background: rgba(255, 255, 255, .1); }
+.consent .btn-primary { background: #fff; color: #161d3a !important; border-color: #fff; }
+.consent .btn-primary:hover { background: #e9ecff; }
+@keyframes consent-in { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .consent { animation: none; } }
+@media (max-width: 640px) { .consent { flex-direction: column; align-items: stretch; padding: 16px; left: 12px; right: 12px; bottom: 12px; } .consent-actions { display: grid; grid-template-columns: 1fr 1fr; } .consent-actions .btn { width: 100%; } }
 /* Admin: flagged accounts */
 .badge-flagged { background: #fff1e6; color: #b45309; border: 1px solid #fcd9b6; }
 .au-flag.is-flagged { border-color: #fcd9b6; background: #fffaf5; }
