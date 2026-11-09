@@ -1,9 +1,9 @@
-import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794208175";
-import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794208175";
-import { fitScore, rankApplicants } from "./match.js?v=1794208175";
-import { scamFlags, SERIOUS } from "./safety.js?v=1794208175";
-import { initPixel, track } from "./pixel.js?v=1794208175";
-import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794208175";
+import { store, onAuth, getAuthState, JOB_FIELDS, ageFrom, uploadsEnabled, LIMITS, PLANS, smsEnabled, normPhone, isFullName } from "./store.js?v=1794208289";
+import { IS_STAGING, FB_LOGIN } from "./firebase-config.js?v=1794208289";
+import { fitScore, rankApplicants } from "./match.js?v=1794208289";
+import { scamFlags, SERIOUS } from "./safety.js?v=1794208289";
+import { initPixel, track } from "./pixel.js?v=1794208289";
+import { IDENTITY, employersHtml, pricingHtml, PRICING_TITLE } from "./pages.js?v=1794208289";
 
 /* ---------------- Constants ---------------- */
 const CATEGORIES = [
@@ -2807,6 +2807,8 @@ async function viewMy() {
     if (!$("#mine")) return;
     const payFor = (j) => pays.find((x) => x.status === "pending" && (x.jobId === j.id || x.kind === "monthly"));
     const paidFor = (j) => pays.find((x) => x.status === "approved" && x.jobId === j.id);
+    // A soft, benefit-first nudge (a link, not a loud button): what they get first, the price small.
+    const nudge = (j, text) => `<a class="pro-nudge" href="#/pay/post/${encodeURIComponent(j.id)}"><span class="pn-icon" aria-hidden="true">↑</span><span>${text}</span><span class="pn-price">₱${PLANS.post.price}</span></a>`;
     const proBtn = (j, label, primary) => `<a class="btn ${primary ? "btn-primary" : "btn-ghost"} btn-sm" href="#/pay/post/${encodeURIComponent(j.id)}">${label} · ₱${PLANS.post.price}</a>`;
     // One plan line on every post, so the employer always knows where they stand.
     const planLine = (j, n) => {
@@ -2821,10 +2823,10 @@ async function viewMy() {
         const used = Math.max(n, j.appCount || 0), cap = PLANS.free.maxApplicants, full = used >= cap, near = used >= cap - 2;
         if (payFor(j)) return `<div class="plan-line wait"><span class="plan-chip">Free · ${used} of ${cap} applicants</span><span class="plan-chip">Payment sent</span> We're checking it.</div>`;
         if (j.status === "closed") return `<div class="plan-line"><span class="plan-chip">Free · ${used} of ${cap} applicants</span></div>`;
-        return `<div class="plan-line ${full ? "due" : ""}"><span class="plan-chip ${near ? "due" : ""}">Free · ${used} of ${cap} applicants</span>${full ? ` <strong>Full.</strong> It stopped taking applications. ${proBtn(j, "Reopen with Pro", true)}` : near ? ` Almost full. ${proBtn(j, "Make it Pro", false)} <a class="small" href="/pricing/">See plans</a>` : ""}</div>`;
+        return `<div class="plan-line ${full ? "due" : ""}"><span class="plan-chip ${near ? "due" : ""}">Free · ${used} of ${cap} applicants</span>${full ? ` <strong>Full.</strong> It stopped taking applications. ${proBtn(j, "Reopen with Pro", true)}` : near ? ` Almost full. ${nudge(j, "Keep applicants coming: unlimited + top of the list")} <a class="small" href="/pricing/">See plans</a>` : ""}</div>`;
       }
       // Posts from before plans existed: no applicant limit.
-      return `<div class="plan-line"><span class="plan-chip">Free · ${n} applicant${n === 1 ? "" : "s"}</span>${isLive(j) ? ` ${proBtn(j, "Move it to the top", false)}` : ""}</div>`;
+      return `<div class="plan-line"><span class="plan-chip">Free · ${n} applicant${n === 1 ? "" : "s"}</span>${isLive(j) ? ` ${nudge(j, "Get more applicants: show it first for 30 days")}` : ""}</div>`;
     };
     const subLine = plan.sub ? `<div class="plan-banner">${ICON.check}<span><strong>${esc(PLANS[plan.sub.plan]?.name || "Pro")} is on</strong> until ${new Date(plan.sub.until).toLocaleDateString("en-PH", { month: "long", day: "numeric" })}. Every new post is Pro.</span> <a class="btn btn-ghost btn-sm" href="#/plan">My plan</a></div>` : "";
     list.sort((a, b) => b.createdAt - a.createdAt);

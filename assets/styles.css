@@ -1709,3 +1709,8 @@ h2, h3 { font-weight: 700; letter-spacing: -.01em; }
 .review-note { margin: 8px 0 0; font-size: .84rem; color: var(--slate); }
 .plan-chip.ok { background: var(--green-soft); color: var(--green); border-color: var(--ok-line); }
 .trow .btn-primary, .trow .btn-primary:hover { color: #fff; }
+/* Soft "go Pro" nudge on My posts */
+.pro-nudge { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 4px; border-radius: 999px; background: var(--indigo-soft); color: var(--indigo); font-size: .82rem; font-weight: 500; text-decoration: none; transition: background .15s; }
+.pro-nudge:hover { background: var(--soft-line); text-decoration: none; }
+.pn-icon { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--indigo); color: #fff; font-size: .75rem; font-weight: 700; }
+.pn-price { padding: 1px 8px; border-radius: 999px; background: var(--card); color: var(--navy); font-weight: 600; font-size: .78rem; }
